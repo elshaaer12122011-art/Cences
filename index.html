@@ -222,22 +222,27 @@ async function extract(o){
   return {data:{patients:Array.isArray(r)?r:(r.patients||[r])}};
 }
 function rowsToPatients(rows){
-  const hi=rows.findIndex(r=>r.some(c=>/p\.?\s*name/i.test(String(c)))&&r.some(c=>/history/i.test(String(c))));
+  const hi=rows.findIndex(r=>r.some(c=>/name|اسم/i.test(String(c)))&&r.some(c=>/history/i.test(String(c))));
   if(hi<0)return null;
   const hdr=rows[hi].map(c=>String(c).toLowerCase());
   const col=re=>hdr.findIndex(h=>re.test(h));
-  const C={room:col(/room/),name:col(/name/),payer:col(/status|payer/),sex:col(/^\s*sex/),los:col(/length|los/),history:col(/history/),connections:col(/connect/),infusions:col(/infus/),labrad:col(/lab/),pending:col(/pending/),cs:col(/c\/s|infection/),remarks:col(/remark/),admit_date:col(/admi|date/)};
+  const C={room:col(/room/),name:col(/name|اسم/),payer:col(/status|payer/),sex:col(/^\s*sex/),los:col(/length|los/),history:col(/history/),connections:col(/connect/),infusions:col(/infus/),labrad:col(/lab/),pending:col(/pending/),cs:col(/c\/s|infection/),remarks:col(/remark/),admit_date:col(/admi|date/)};
   const get=(r,k)=>C[k]>=0&&r[C[k]]!=null?String(r[C[k]]).trim():'';
-  const out=[];let cur=null,room='';
+  const blank=()=>Object.fromEntries(FIELDS.map(k=>[k,'']));
+  const out=[];let cur=null,room='',needName=false,pendingId=false;
+  const fill=(p,r)=>{FIELDS.forEach(k=>{if(C[k]>=0&&k!=='name'&&k!=='los'){const v=get(r,k);if(v&&!p[k])p[k]=v}})};
   for(let i=hi+1;i<rows.length;i++){
     const r=rows[i],nm=get(r,'name');
+    if(!nm){ if(cur)fill(cur,r); continue }
+    if(/^p\.?\s*name$/i.test(nm)||/^neuro/i.test(nm))continue;
+    if(get(r,'room'))room=get(r,'room');
     if(/^\d{4,}/.test(nm)){
-      if(cur){const m=nm.match(/^(\d{4,10})\s*[-–]?\s*(.*)$/);cur.mrn=m[1];cur.doctor=(m[2]||'').trim().toUpperCase();cur.nationality=get(r,'payer');cur.age=get(r,'sex')}
-    }else if(nm){
-      if(get(r,'room'))room=get(r,'room');
-      cur=Object.fromEntries(FIELDS.map(k=>[k,'']));
-      FIELDS.forEach(k=>{if(C[k]>=0)cur[k]=get(r,k)});
-      cur.room=room;cur.los='';out.push(cur);
+      const m=nm.match(/^(\d{4,10})\s*[-–]?\s*(.*)$/);
+      if(cur&&pendingId&&!cur.mrn){cur.mrn=m[1];cur.doctor=(m[2]||'').trim().toUpperCase();cur.nationality=get(r,'payer');cur.age=get(r,'sex');fill(cur,r);pendingId=false}
+      else{cur=blank();cur.room=get(r,'room')||room;cur.mrn=m[1];cur.doctor=(m[2]||'').trim().toUpperCase();cur.nationality=get(r,'payer');cur.age=get(r,'sex');cur.name='MRN '+m[1];fill(cur,r);out.push(cur);needName=true;pendingId=false}
+    }else{
+      if(cur&&needName){cur.name=nm;cur.payer=get(r,'payer');cur.sex=get(r,'sex');fill(cur,r);needName=false}
+      else{cur=blank();cur.room=get(r,'room')||room;cur.name=nm;cur.payer=get(r,'payer');cur.sex=get(r,'sex');fill(cur,r);out.push(cur);pendingId=true;needName=false}
     }
   }
   return out;
@@ -246,10 +251,12 @@ async function readAny(f){
   const n=f.name.toLowerCase();
   if(/\.(xlsx|xls|csv)$/.test(n)){
     const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+    let all=[];
     for(const sn of wb.SheetNames){
       const ws=wb.Sheets[sn],rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false}),local=rowsToPatients(rows);
-      if(local&&local.length)return local;
+      if(local&&local.length)all=all.concat(local);
     }
+    if(all.length)return all;
     const csv=XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
     return (await extract({text:csv.slice(0,60000)})).data.patients;
   }
@@ -261,13 +268,14 @@ async function readAny(f){
 }
 function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
 $('cam').onchange=async e=>{
-  const fs=[...e.target.files];let added=0,changed=0,errs=[];msg('تم اختيار '+fs.length+' صورة');if(!fs.length)return;
+  const fs=[...e.target.files];let added=0,changed=0,parsed=0,errs=[];msg('تم اختيار '+fs.length+' صورة');if(!fs.length)return;
   for(let n=0;n<fs.length;n++){
     if(n>0)await sleep(4000);
     msg('قراءة ملف '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
     try{
       const res={data:{patients:await readAny(fs[n])}},b=writeBatch(db);
       b.set(doc(collection(db,'imports')),{time:serverTimestamp(),rows:JSON.stringify(res.data.patients),n:n+1});
+      parsed+=res.data.patients.length;
       if(!res.data.patients.length)throw new Error('القراءة رجّعت 0 مريض');
       res.data.patients.forEach(x=>{
         const ex=P.find(p=>p._id===id_(x));
@@ -280,7 +288,7 @@ $('cam').onchange=async e=>{
       await b.commit();
     }catch(err){errs.push(err.message)}
   }
-  msg(errs.length?'❌ فشل: '+errs.join(' | '):'جديد: '+added+' | اتغير: '+changed);e.target.value='';
+  msg(errs.length?'❌ فشل: '+errs.join(' | '):'اتقرا '+parsed+' مريض | جديد: '+added+' | اتغير: '+changed);e.target.value='';
 };
 
 

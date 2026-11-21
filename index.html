@@ -20,12 +20,13 @@ input,select{flex:1}button{background:var(--acc);color:#fff;border:0;font-weight
 .f{margin-top:6px;font-size:13px;white-space:pre-wrap}.f b{color:var(--mut)}.new{border-inline-start:4px solid var(--warnb)}
 #login{padding:20px}
 .tw{overflow-x:auto;margin:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}table{border-collapse:collapse;font-size:12px;min-width:1500px}th,td{border:1px solid var(--line);padding:6px;vertical-align:top;white-space:pre-wrap;min-width:90px}th{background:var(--bg)}tr.new td{background:var(--warn)}h4{margin:14px 10px 0}.ib{margin:12px 10px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
+.lb{flex:1;text-align:center;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-weight:600}
 </style></head><body>
 <div id="app">
 <header>
   <div class="row"><input id="q" placeholder="اسم المريض أو MRN"><select id="fld"></select></div>
   <div class="row"><input id="txt" placeholder="المعلومة الجديدة"><button id="sv">حفظ</button></div>
-  <div class="row"><button class="sec" id="cb">📷 صوّر الcensus</button><button class="sec" id="fb">PDF كامل</button><input id="s" placeholder="بحث"></div>
+  <div class="row"><label class="lb" for="cam">📷 صوّر الcensus</label><button class="sec" id="fb">PDF كامل</button><input id="s" placeholder="بحث"></div>
   <input type="file" id="cam" accept="image/*" multiple hidden>
 </header>
 <div id="msg"></div>
@@ -40,6 +41,7 @@ import {getAuth,signInAnonymously,onAuthStateChanged} from "https://www.gstatic.
 // >>> ضع إعدادات مشروعك هنا (Project settings > Your apps)
 const app=initializeApp({apiKey:"AIzaSyDI-t55nwcocFL55OFFK5V6onJxIc-m-00",authDomain:"cences-51059.firebaseapp.com",projectId:"cences-51059",storageBucket:"cences-51059.firebasestorage.app",messagingSenderId:"1020457540151",appId:"1:1020457540151:web:56e69a4655638aa380bdb2"});
 const db=getFirestore(app),auth=getAuth(app);
+window.addEventListener('error',e=>{const m=document.getElementById('msg');if(m)m.textContent='JS خطأ: '+e.message});window.addEventListener('unhandledrejection',e=>{const m=document.getElementById('msg');if(m)m.textContent='خطأ: '+(e.reason&&e.reason.message||e.reason)});
 const HOURS=6,$=id=>document.getElementById(id);
 const L={room:'Room',mrn:'MRN',name:'Name',doctor:'Doctor',payer:'Payer',nationality:'Nationality',age:'Age',sex:'Sex',los:'LOS',admit_date:'Admit',history:'History',connections:'Connections',infusions:'Infusions',labrad:'Lab & Rad',pending:'Pending',cs:'C/S Infection',remarks:'Remarks'};
 const FIELDS=Object.keys(L),EDIT=['history','connections','infusions','labrad','pending','cs','remarks'];
@@ -56,7 +58,7 @@ signInAnonymously(auth).catch(e=>msg('خطأ دخول: '+e.message));
 let started=false;
 function start(){
   if(started)return;started=true;
-  onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()});
+  onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()},er=>msg('خطأ قاعدة البيانات: '+er.message));
   const since=()=>Timestamp.fromMillis(Date.now()-HOURS*36e5);
   onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>d.data());render()});
   onSnapshot(query(collection(db,'imports'),orderBy('time','desc'),limit(10)),sn=>{IM=sn.docs.map(d=>{const x=d.data();let rows=[];try{rows=JSON.parse(x.rows)}catch(e){}return {when:t_(x.time).toLocaleString(),rows}});render()});
@@ -127,9 +129,8 @@ async function extract({image}){
   try{return {data:{patients:JSON.parse(txt)}}}catch(e){throw new Error('مقدرتش أقرا الصورة، صوّر أقرب وأوضح')}
 }
 function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
-$('cb').onclick=()=>$('cam').click();
 $('cam').onchange=async e=>{
-  const fs=[...e.target.files];let added=0,changed=0;
+  const fs=[...e.target.files];let added=0,changed=0;msg('تم اختيار '+fs.length+' صورة');if(!fs.length)return;
   for(let n=0;n<fs.length;n++){
     msg('قراءة صورة '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
     try{

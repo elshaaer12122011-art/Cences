@@ -29,10 +29,11 @@ table.sh{border-collapse:collapse;font-size:12px;min-width:1700px;table-layout:f
 table.sh th,table.sh td{border:1px solid #888;padding:5px;vertical-align:middle;text-align:center;white-space:pre-wrap;word-break:break-word}
 table.sh tr.tt th{background:#1c1c1c;color:#fff;font-size:15px;text-align:center}
 table.sh tr.hd th{background:#3b3b3b;color:#fff}
-table.sh tr.g0 td{background:rgba(66,133,244,.17)}
-table.sh tr.g1 td{background:rgba(52,168,83,.17)}
-table.sh tr.g2 td{background:rgba(251,140,0,.19)}
-table.sh tr.new td{background:var(--warn)}
+table.sh tr.g0 td{background:rgba(66,133,244,.30)}
+table.sh tr.g1 td{background:rgba(52,168,83,.30)}
+table.sh tr.g2 td{background:rgba(251,140,0,.32)}
+table.sh tr.new td:first-child{box-shadow:inset 7px 0 0 #e0a800,inset -7px 0 0 #e0a800}
+#alist{padding:0;margin:8px 0}#alist li{list-style:none;margin:6px 0;padding:7px 9px;border-radius:8px;border-inline-start:6px solid transparent}
 table.sh td.chg{background:#ffe08a!important;color:#000;font-weight:700}
 table.sh td.tl{text-align:start}
 .ib .bs{display:flex;gap:6px}
@@ -95,7 +96,8 @@ function start(){
 function render(){
   const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
   $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
-  $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+' <button class="x" data-del="'+c._id+'">🗑</button></li>').join(''):'<li>مفيش تعديلات</li>';
+  const HC=['rgba(66,133,244,.32)','rgba(52,168,83,.32)','rgba(251,140,0,.34)'],HB=['#4285f4','#34a853','#fb8c00'];
+  $('alist').innerHTML=rec.length?rec.map(c=>{const k=P.findIndex(p=>p.name===c.name&&(p.mrn||'')===(c.mrn||'')),z=(k>=0?k:0)%3;return '<li style="background:'+HC[z]+';border-inline-start-color:'+HB[z]+'"><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+' <button class="x" data-del="'+c._id+'">🗑</button></li>'}).join(''):'<li>مفيش تعديلات</li>';
   $('list').innerHTML=sheet(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,k)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[k]),true);
   $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📎 ملف/صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><span class="bs"><button data-a="pdf" data-i="'+i+'">⬇ PDF</button><button data-a="xls" data-i="'+i+'">⬇ Excel</button><button class="x" data-a="del" data-i="'+i+'">🗑</button></span></div>'+sheet(m.rows)).join('');
 }
@@ -116,14 +118,14 @@ function sheet(rows,fresh,flag,edit){
   const f=(p,k,x)=>k==='los'?'<td>'+esc(losOf(p))+'</td>':'<td'+(x||'')+(edit?' data-id="'+esc(p._id)+'" data-k="'+k+'"':'')+((flag&&flag(p,k))?' class="chg"':(BIG.includes(k)&&k!=='admit_date'?' class="tl"':''))+'>'+esc(p[k])+'</td>';
   const rs=' rowspan="2"';
   return '<div class="tw"><table class="sh"><colgroup><col style="width:60px"><col style="width:150px"><col style="width:90px"><col style="width:50px"><col style="width:60px"><col style="width:200px"><col style="width:170px"><col style="width:140px"><col style="width:200px"><col style="width:140px"><col style="width:200px"><col style="width:200px"><col style="width:90px"></colgroup><tr class="tt"><th colspan="13">NEURO-ICU</th></tr><tr class="hd">'+HDR.map(h=>'<th>'+h+'</th>').join('')+'</tr>'+
-  rows.map((p,i)=>{const c='g'+(i%3)+' '+(fresh&&fresh(p)?'new':'');
+  rows.map((p,i)=>{const pi=P.indexOf(p),c='g'+((pi>=0?pi:i)%3)+' '+(fresh&&fresh(p)?'new':'');
     return '<tr class="'+c+'">'+f(p,'room',rs)+f(p,'name')+f(p,'payer')+f(p,'sex')+f(p,'los')+BIG.map(k=>f(p,k,rs)).join('')+'</tr><tr class="'+c+'"><td>'+esc(idl(p))+'</td>'+f(p,'nationality')+f(p,'age')+'<td></td></tr>'}).join('')+'</table></div>';
 }
 function pdfSheet(rows,title,fname){
   const d=new jspdf.jsPDF({orientation:'landscape',format:'a3'});
   d.text(title,10,12);
   const body=[];
-  const PC=[[220,233,251],[221,243,226],[253,232,204]];
+  const PC=[[187,214,251],[184,230,194],[255,214,153]];
   rows.forEach((p,i)=>{
     const st={fillColor:PC[i%3]},T=(v,x)=>Object.assign({content:String(v==null?'':v),styles:st},x||{});
     body.push([T(p.room,{rowSpan:2}),T(p.name),T(p.payer),T(p.sex),T(losOf(p)),...BIG.map(k=>T(p[k],{rowSpan:2}))]);
@@ -145,7 +147,7 @@ async function xlsxSheet(rows,fname){
     ws.addRow([p.room||'',p.name||'',p.payer||'',p.sex||'',losOf(p),...BIG.map(k=>p[k]||'')]);
     ws.addRow(['',idl(p),p.nationality||'',p.age||'','']);
     [1,6,7,8,9,10,11,12,13].forEach(c=>ws.mergeCells(r,c,r+1,c));
-    for(let k=r;k<=r+1;k++){ws.getRow(k).eachCell({includeEmpty:true},(c,n)=>{c.border=bd;c.alignment={vertical:'middle',horizontal:(n>=6&&n<=12)?'left':'center',wrapText:true};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:['FFDCE9FB','FFDDF3E2','FFFDE8CC'][i%3]}}})}
+    for(let k=r;k<=r+1;k++){ws.getRow(k).eachCell({includeEmpty:true},(c,n)=>{c.border=bd;c.alignment={vertical:'middle',horizontal:(n>=6&&n<=12)?'left':'center',wrapText:true};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:['FFBBD6FB','FFB8E6C2','FFFFD699'][i%3]}}})}
     const ln=Math.max(...BIG.map(k=>String(p[k]||'').split('\n').reduce((n,l)=>n+Math.max(1,Math.ceil(l.length/30)),0)),2);
     const hh=Math.min(ln*7.5+4,300);ws.getRow(r).height=hh;ws.getRow(r+1).height=hh;
   });

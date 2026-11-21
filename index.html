@@ -130,12 +130,13 @@ async function extract({image}){
 }
 function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
 $('cam').onchange=async e=>{
-  const fs=[...e.target.files];let added=0,changed=0;msg('تم اختيار '+fs.length+' صورة');if(!fs.length)return;
+  const fs=[...e.target.files];let added=0,changed=0,errs=[];msg('تم اختيار '+fs.length+' صورة');if(!fs.length)return;
   for(let n=0;n<fs.length;n++){
     msg('قراءة صورة '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
     try{
       const res=await extract({image:await shrink(fs[n])}),b=writeBatch(db);
       b.set(doc(collection(db,'imports')),{time:serverTimestamp(),rows:JSON.stringify(res.data.patients),n:n+1});
+      if(!res.data.patients.length)throw new Error('القراءة رجّعت 0 مريض');
       res.data.patients.forEach(x=>{
         const ex=P.find(p=>p._id===id_(x));
         if(!ex){b.set(doc(db,'patients',id_(x)),{...Object.fromEntries(FIELDS.map(k=>[k,x[k]||''])),lastUpdated:serverTimestamp()});
@@ -145,8 +146,8 @@ $('cam').onchange=async e=>{
           if(Object.keys(u).length){u.lastUpdated=serverTimestamp();b.update(doc(db,'patients',ex._id),u);changed++}}
       });
       await b.commit();
-    }catch(err){msg('خطأ: '+err.message)}
+    }catch(err){errs.push(err.message)}
   }
-  msg('جديد: '+added+' | اتغير: '+changed);e.target.value='';
+  msg(errs.length?'❌ فشل: '+errs.join(' | '):'جديد: '+added+' | اتغير: '+changed);e.target.value='';
 };
 </script></body></html>

@@ -115,18 +115,27 @@ $('sv').onclick=async()=>{
 };
 
 
-const MODEL='gemini-3.8-flash'; // لو ظهر خطأ model not found جرّب gemini-2.5-flash
+const MODELS=['gemini-3.8-flash','gemini-3.7-flash','gemini-3.6-flash','gemini-2.5-flash'];
 async function extract({image}){
   let key=localStorage.getItem('gk');
   if(!key){key=prompt('الصق مفتاح Gemini API (مرة واحدة على الجهاز ده)');if(!key)throw new Error('مفيش مفتاح');localStorage.setItem('gk',key.trim())}
   const p='This is a photo of a Neuro-ICU census table (may be rotated). Extract EVERY patient row. Return ONLY a JSON array. Keys per item: '+FIELDS.join(', ')+'. mrn = the number before the doctor name; doctor = e.g. "DR OLFA". Keep abbreviations as written. Use "" for empty fields.';
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODEL+':generateContent',{method:'POST',
-    headers:{'x-goog-api-key':key,'content-type':'application/json'},
-    body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:image}},{text:p}]}],generationConfig:{responseMimeType:'application/json'}})});
-  const j=await r.json();
-  if(j.error){if(r.status===400||r.status===403)localStorage.removeItem('gk');throw new Error(j.error.message)}
-  const txt=(j.candidates[0].content.parts||[]).map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
-  try{return {data:{patients:JSON.parse(txt)}}}catch(e){throw new Error('مقدرتش أقرا الصورة، صوّر أقرب وأوضح')}
+  const body=JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:image}},{text:p}]}],generationConfig:{responseMimeType:'application/json'}});
+  let last='';
+  for(let round=0;round<2;round++){
+    for(const M of MODELS){
+      msg('قراءة الصورة بـ '+M+' ...');
+      let r,j;
+      try{r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+M+':generateContent',{method:'POST',headers:{'x-goog-api-key':key,'content-type':'application/json'},body});j=await r.json()}catch(e){last=e.message;continue}
+      if(j.error){last=j.error.message;
+        if(r.status===400&&/API key/i.test(last)||r.status===403){localStorage.removeItem('gk');throw new Error('المفتاح غلط أو مش مفعّل: '+last)}
+        continue}
+      const txt=(j.candidates&&j.candidates[0]&&j.candidates[0].content.parts||[]).map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
+      try{return {data:{patients:JSON.parse(txt)}}}catch(e){last='مقدرتش أقرا الرد';continue}
+    }
+    msg('الخدمة مشغولة، بحاول تاني...');await new Promise(r=>setTimeout(r,6000));
+  }
+  throw new Error(last||'فشلت القراءة');
 }
 function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
 $('cam').onchange=async e=>{

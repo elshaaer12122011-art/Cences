@@ -19,6 +19,7 @@ input,select{flex:1}button{background:var(--acc);color:#fff;border:0;font-weight
 .pt h3{margin:0 0 4px;font-size:16px}.meta{color:var(--mut);font-size:13px}
 .f{margin-top:6px;font-size:13px;white-space:pre-wrap}.f b{color:var(--mut)}.new{border-inline-start:4px solid var(--warnb)}
 #login{padding:20px}
+.tw{overflow-x:auto;margin:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}table{border-collapse:collapse;font-size:12px;min-width:1500px}th,td{border:1px solid var(--line);padding:6px;vertical-align:top;white-space:pre-wrap;min-width:90px}th{background:var(--bg)}tr.new td{background:var(--warn)}h4{margin:14px 10px 0}.ib{margin:12px 10px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
 </style></head><body>
 <div id="app">
 <header>
@@ -28,12 +29,12 @@ input,select{flex:1}button{background:var(--acc);color:#fff;border:0;font-weight
   <input type="file" id="cam" accept="image/*" multiple hidden>
 </header>
 <div id="msg"></div>
-<details id="alert" open><summary id="asum"></summary><ul id="alist"></ul></details>
-<div id="list"></div></div>
+<details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
+<div id="imps"></div><h4>كل المرضى</h4><div id="list"></div></div>
 
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import {getFirestore,collection,doc,onSnapshot,query,where,orderBy,writeBatch,serverTimestamp,Timestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {getFirestore,collection,doc,onSnapshot,query,where,orderBy,limit,writeBatch,serverTimestamp,Timestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import {getAuth,signInAnonymously,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 
 // >>> ضع إعدادات مشروعك هنا (Project settings > Your apps)
@@ -42,7 +43,7 @@ const db=getFirestore(app),auth=getAuth(app);
 const HOURS=6,$=id=>document.getElementById(id);
 const L={room:'Room',mrn:'MRN',name:'Name',doctor:'Doctor',payer:'Payer',nationality:'Nationality',age:'Age',sex:'Sex',los:'LOS',admit_date:'Admit',history:'History',connections:'Connections',infusions:'Infusions',labrad:'Lab & Rad',pending:'Pending',cs:'C/S Infection',remarks:'Remarks'};
 const FIELDS=Object.keys(L),EDIT=['history','connections','infusions','labrad','pending','cs','remarks'];
-let P=[],C=[];
+let P=[],C=[],IM=[];
 const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const msg=t=>$('msg').textContent=t;
 const id_=p=>String(p.mrn||p.name).trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-')||'x';
@@ -58,17 +59,26 @@ function start(){
   onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()});
   const since=()=>Timestamp.fromMillis(Date.now()-HOURS*36e5);
   onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>d.data());render()});
+  onSnapshot(query(collection(db,'imports'),orderBy('time','desc'),limit(10)),sn=>{IM=sn.docs.map(d=>{const x=d.data();let rows=[];try{rows=JSON.parse(x.rows)}catch(e){}return {when:t_(x.time).toLocaleString(),rows}});render()});
   setInterval(render,60000);
 }
 function render(){
   const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
   $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
   $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+'</li>').join(''):'<li>مفيش تعديلات</li>';
-  $('list').innerHTML=P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)).map(p=>{
-    const fresh=p.lastUpdated&&t_(p.lastUpdated).getTime()>cut;
-    return '<div class="pt'+(fresh?' new':'')+'"><h3>'+esc(p.room)+' · '+esc(p.name)+'</h3><div class="meta">MRN '+esc(p.mrn)+' · '+esc(p.doctor)+' · '+esc(p.age)+esc(p.sex)+' · '+esc(p.payer)+'</div>'+
-    EDIT.filter(k=>p[k]).map(k=>'<div class="f"><b>'+L[k]+':</b> '+esc(p[k])+'</div>').join('')+'</div>'}).join('');
+  $('list').innerHTML=tbl(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut);
+  $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📷 صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><button data-i="'+i+'">⬇ PDF</button></div>'+tbl(m.rows)).join('');
 }
+const COLS=['room','name','mrn','doctor','age','sex','history','connections','infusions','labrad','pending','cs','remarks'];
+const tbl=(rows,fresh)=>'<div class="tw"><table><tr>'+COLS.map(c=>'<th>'+L[c]+'</th>').join('')+'</tr>'+rows.map(p=>'<tr'+(fresh&&fresh(p)?' class="new"':'')+'>'+COLS.map(c=>'<td>'+esc(p[c])+'</td>').join('')+'</tr>').join('')+'</table></div>';
+function impPdf(m){
+  const d=new jspdf.jsPDF({orientation:'landscape',format:'a3'});
+  d.text('Neuro ICU Census - photo '+m.when,10,12);
+  d.autoTable({startY:18,styles:{fontSize:6,cellPadding:1.5},head:[COLS.map(c=>L[c])],body:m.rows.map(p=>COLS.map(c=>p[c]||''))});
+  d.save('Census_photo_'+m.when.replace(/[^0-9]+/g,'-')+'.pdf');
+}
+$('imps').onclick=e=>{const i=e.target.dataset&&e.target.dataset.i;if(i!==undefined&&IM[i])impPdf(IM[i])};
+$('cp').onclick=e=>{e.preventDefault();changesPdf()};
 $('s').oninput=render;
 
 function changesPdf(extra){
@@ -124,6 +134,7 @@ $('cam').onchange=async e=>{
     msg('قراءة صورة '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
     try{
       const res=await extract({image:await shrink(fs[n])}),b=writeBatch(db);
+      b.set(doc(collection(db,'imports')),{time:serverTimestamp(),rows:JSON.stringify(res.data.patients),n:n+1});
       res.data.patients.forEach(x=>{
         const ex=P.find(p=>p._id===id_(x));
         if(!ex){b.set(doc(db,'patients',id_(x)),{...Object.fromEntries(FIELDS.map(k=>[k,x[k]||''])),lastUpdated:serverTimestamp()});
@@ -136,6 +147,5 @@ $('cam').onchange=async e=>{
     }catch(err){msg('خطأ: '+err.message)}
   }
   msg('جديد: '+added+' | اتغير: '+changed);e.target.value='';
-  if(added||changed)setTimeout(()=>changesPdf(),1500);
 };
 </script></body></html>

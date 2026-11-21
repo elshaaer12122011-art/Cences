@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Neuro ICU Census</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
@@ -39,7 +40,8 @@ table.sh td.tl{text-align:start}
   <div class="row"><input id="q" placeholder="اسم المريض أو MRN"><select id="fld"></select></div>
   <div class="row"><input id="txt" placeholder="المعلومة الجديدة"><button id="sv">حفظ</button></div>
   <div class="row"><label class="lb" for="cam">📷 صوّر الcensus</label><button class="sec" id="fb">PDF كامل</button><input id="s" placeholder="بحث"></div>
-  <div class="row"><button class="sec" id="nb" style="flex:1">➕ مريض جديد / تحديث برسالة</button></div>
+  <div class="row"><button class="sec" id="nb" style="flex:1">➕ مريض جديد / تحديث برسالة</button><label class="lb" for="fil">📄 ارفع PDF / Excel</label></div>
+  <input type="file" id="fil" accept=".pdf,application/pdf,.xlsx,.xls,.csv" multiple hidden>
   <input type="file" id="cam" accept="image/*" multiple hidden>
 </header>
 <div id="msg"></div>
@@ -84,7 +86,7 @@ function render(){
   $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
   $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+'</li>').join(''):'<li>مفيش تعديلات</li>';
   $('list').innerHTML=sheet(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,k)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[k]),true);
-  $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📷 صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><span class="bs"><button data-a="pdf" data-i="'+i+'">⬇ PDF</button><button data-a="xls" data-i="'+i+'">⬇ Excel</button></span></div>'+sheet(m.rows)).join('');
+  $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📎 ملف/صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><span class="bs"><button data-a="pdf" data-i="'+i+'">⬇ PDF</button><button data-a="xls" data-i="'+i+'">⬇ Excel</button></span></div>'+sheet(m.rows)).join('');
 }
 function parseD(s){
   const m=String(s||'').match(/(\d{1,4})\D+(\d{1,2})\D+(\d{1,4})/);if(!m)return null;
@@ -174,41 +176,88 @@ $('sv').onclick=async()=>{
 };
 
 
-const MODELS=['gemini-3.8-flash','gemini-3.7-flash','gemini-3.6-flash','gemini-2.5-flash'];
+const MODELS=['gemini-3.8-flash','gemini-3.7-flash','gemini-3.6-flash','gemini-flash-latest'];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function gem(parts,o){
   o=o||{};const MS=o.models||MODELS,RN=o.rounds||2,TM=o.tmo||40000;
   let key=localStorage.getItem('gk');
   if(!key){key=prompt('الصق مفتاح Gemini API (مرة واحدة على الجهاز ده)');if(!key)throw new Error('مفيش مفتاح');localStorage.setItem('gk',key.trim())}
   const body=JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json'}});
-  let last='';
+  const trail=[],short=t=>String(t).replace(/\s+/g,' ').slice(0,90);
   for(let round=0;round<RN;round++){
     for(const M of MS){
       msg('قراءة بـ '+M+' ...');
       let r,j;
       const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),TM);
-      try{r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+M+':generateContent',{method:'POST',headers:{'x-goog-api-key':key,'content-type':'application/json'},body,signal:ac.signal});j=await r.json()}catch(e){last=e.name==='AbortError'?'الموديل '+M+' اتأخر':e.message;clearTimeout(tm);continue}
+      try{r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+M+':generateContent',{method:'POST',headers:{'x-goog-api-key':key,'content-type':'application/json'},body,signal:ac.signal});j=await r.json()}
+      catch(e){clearTimeout(tm);trail.push(M+': '+(e.name==='AbortError'?'اتأخر':short(e.message)));continue}
       clearTimeout(tm);
-      if(j.error){last=j.error.message;
-        if(r.status===400&&/API key/i.test(last)||r.status===403){localStorage.removeItem('gk');throw new Error('المفتاح غلط أو مش مفعّل: '+last)}
+      if(j.error){
+        const em=j.error.message||'';
+        trail.push(M+' ['+r.status+']: '+short(em));
+        if(r.status===403||(r.status===400&&/API key/i.test(em))){localStorage.removeItem('gk');throw new Error('المفتاح غلط أو مش مفعّل: '+short(em))}
+        if(r.status===429){const m=em.match(/retry in ([\d.]+)s/i),w=Math.min(Math.ceil(m?+m[1]:15)+1,60);
+          for(let k=w;k>0;k--){msg('⏳ وصلت للحد المجاني، استنى '+k+' ثانية...');await sleep(1000)}}
         continue}
-      const txt=(j.candidates&&j.candidates[0]&&j.candidates[0].content.parts||[]).map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
-      try{return JSON.parse(txt)}catch(e){last='مقدرتش أقرا الرد';continue}
+      const txt=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
+      try{return JSON.parse(txt)}catch(e){trail.push(M+': الرد مش مفهوم');continue}
     }
-    if(round<RN-1){msg('الخدمة مشغولة، بحاول تاني...');await new Promise(r=>setTimeout(r,6000))}
+    if(round<RN-1){msg('الخدمة مشغولة، بحاول تاني...');await sleep(6000)}
   }
-  throw new Error(last||'فشلت القراءة');
+  throw new Error(trail.slice(-4).join(' || ')||'فشلت القراءة');
 }
-async function extract({image}){
-  const p='This is a photo of a Neuro-ICU census table (may be rotated). Extract EVERY patient. Each patient occupies TWO table rows that share merged cells: row 1 has name, payer (F.Status), sex, length of stay; row 2 has MRN-doctor (e.g. 2296455-DR.AYOUB), nationality and age; room number is in the first column; history, connections, infusions, lab&rad, pending, C/S infection, remarks and admission date span both rows. Merge both rows into ONE object per patient. Return ONLY a JSON array. Keys per item: '+FIELDS.join(', ')+'. mrn = the number before the doctor name; doctor = e.g. "DR OLFA". Keep abbreviations as written. Use "" for empty fields.';
-  return {data:{patients:await gem([{inline_data:{mime_type:'image/jpeg',data:image}},{text:p}])}};
+async function extract(o){
+  const p='This is a Neuro-ICU census (photo, PDF or table). Extract EVERY patient. Each patient occupies TWO table rows that share merged cells: row 1 has name, payer (F.Status), sex, length of stay; row 2 has MRN-doctor (e.g. 2296455-DR.AYOUB), nationality and age; room number is in the first column; history, connections, infusions, lab&rad, pending, C/S infection, remarks and admission date span both rows. Merge both rows into ONE object per patient. Return ONLY a JSON array. Keys per item: '+FIELDS.join(', ')+'. mrn = the number before the doctor name; doctor = e.g. "DR OLFA". Keep abbreviations as written. Use "" for empty fields.';
+  const parts=o.text?[{text:p+'\n\nTABLE DATA (CSV):\n'+o.text}]:[{inline_data:{mime_type:o.mime||'image/jpeg',data:o.image}},{text:p}];
+  const r=await gem(parts,{tmo:90000});
+  return {data:{patients:Array.isArray(r)?r:(r.patients||[r])}};
+}
+function rowsToPatients(rows){
+  const hi=rows.findIndex(r=>r.some(c=>/p\.?\s*name/i.test(String(c)))&&r.some(c=>/history/i.test(String(c))));
+  if(hi<0)return null;
+  const hdr=rows[hi].map(c=>String(c).toLowerCase());
+  const col=re=>hdr.findIndex(h=>re.test(h));
+  const C={room:col(/room/),name:col(/name/),payer:col(/status|payer/),sex:col(/^\s*sex/),los:col(/length|los/),history:col(/history/),connections:col(/connect/),infusions:col(/infus/),labrad:col(/lab/),pending:col(/pending/),cs:col(/c\/s|infection/),remarks:col(/remark/),admit_date:col(/admi|date/)};
+  const get=(r,k)=>C[k]>=0&&r[C[k]]!=null?String(r[C[k]]).trim():'';
+  const out=[];let cur=null,room='';
+  for(let i=hi+1;i<rows.length;i++){
+    const r=rows[i],nm=get(r,'name');
+    if(/^\d{4,}/.test(nm)){
+      if(cur){const m=nm.match(/^(\d{4,10})\s*[-–]?\s*(.*)$/);cur.mrn=m[1];cur.doctor=(m[2]||'').trim().toUpperCase();cur.nationality=get(r,'payer');cur.age=get(r,'sex')}
+    }else if(nm){
+      if(get(r,'room'))room=get(r,'room');
+      cur=Object.fromEntries(FIELDS.map(k=>[k,'']));
+      FIELDS.forEach(k=>{if(C[k]>=0)cur[k]=get(r,k)});
+      cur.room=room;cur.los='';out.push(cur);
+    }
+  }
+  return out;
+}
+async function readAny(f){
+  const n=f.name.toLowerCase();
+  if(/\.(xlsx|xls|csv)$/.test(n)){
+    const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+    for(const sn of wb.SheetNames){
+      const ws=wb.Sheets[sn],rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false}),local=rowsToPatients(rows);
+      if(local&&local.length)return local;
+    }
+    const csv=XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
+    return (await extract({text:csv.slice(0,60000)})).data.patients;
+  }
+  if(/\.pdf$/.test(n)||f.type==='application/pdf'){
+    const b64=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=()=>no(new Error('مقدرتش أقرا الملف'));r.readAsDataURL(f)});
+    return (await extract({image:b64,mime:'application/pdf'})).data.patients;
+  }
+  return (await extract({image:await shrink(f)})).data.patients;
 }
 function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
 $('cam').onchange=async e=>{
   const fs=[...e.target.files];let added=0,changed=0,errs=[];msg('تم اختيار '+fs.length+' صورة');if(!fs.length)return;
   for(let n=0;n<fs.length;n++){
-    msg('قراءة صورة '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
+    if(n>0)await sleep(4000);
+    msg('قراءة ملف '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
     try{
-      const res=await extract({image:await shrink(fs[n])}),b=writeBatch(db);
+      const res={data:{patients:await readAny(fs[n])}},b=writeBatch(db);
       b.set(doc(collection(db,'imports')),{time:serverTimestamp(),rows:JSON.stringify(res.data.patients),n:n+1});
       if(!res.data.patients.length)throw new Error('القراءة رجّعت 0 مريض');
       res.data.patients.forEach(x=>{
@@ -297,4 +346,5 @@ $('nps').onclick=async()=>{
   }catch(e){msg('❌ '+e.message)}
   finally{$('nps').disabled=false}
 };
+$('fil').onchange=$('cam').onchange;
 </script></body></html>

@@ -38,6 +38,12 @@ table.sh td.chg{background:#ffe08a!important;color:#000;font-weight:700}
 table.sh td.tl{text-align:start}
 .ib .bs{display:flex;gap:6px}
 .x{padding:3px 8px;background:transparent;color:#c0392b;border:1px solid #c0392b;border-radius:6px;font-size:13px}
+table.sh tr.vac td{background:rgba(128,128,128,.14);color:var(--mut);font-style:italic;height:34px}
+table.sh tr.vac td[colspan]{text-align:center;letter-spacing:2px}
+table.ho{border-collapse:collapse;min-width:980px;width:100%;font-size:14px}
+table.ho td{border:1px solid #888;padding:9px;vertical-align:middle}
+table.ho td.l{background:#7a7a7a;color:#fff;font-weight:700;width:11%}
+table.ho td.v{background:var(--card);font-weight:700;cursor:pointer}
 </style></head><body>
 <div id="login" style="display:none;padding:24px;max-width:420px;margin:70px auto;text-align:center"><h3>🔒 NEURO-ICU Census</h3><input id="pw" type="password" inputmode="numeric" placeholder="الباسورد" style="width:100%;margin:10px 0"><button id="lb" style="width:100%">دخول</button><div id="le" style="color:#c0392b;margin-top:10px"></div></div>
 <div id="app" style="display:none">
@@ -45,7 +51,7 @@ table.sh td.tl{text-align:start}
   <div class="row"><input id="q" placeholder="اسم المريض أو MRN"><select id="fld"></select></div>
   <div class="row"><input id="txt" placeholder="المعلومة الجديدة"><button id="sv">حفظ</button></div>
   <div class="row"><label class="lb" for="cam">📷 صوّر الcensus</label><button class="sec" id="fb">PDF كامل</button><button class="sec" id="ca" title="مسح الكل" style="flex:0 0 auto;color:#c0392b">🗑</button><input id="s" placeholder="بحث"></div>
-  <div class="row"><button class="sec" id="nb" style="flex:1">➕ مريض جديد / تحديث برسالة</button><label class="lb" for="fil">📄 ارفع PDF / Excel</label></div>
+  <div class="row"><button class="sec" id="nb" style="flex:1">➕ مريض / رسالة</button><label class="lb" for="fil">📄 PDF / Excel</label><button class="sec" id="hb" style="flex:0 0 auto">📋 Handover</button></div>
   <input type="file" id="fil" accept=".pdf,application/pdf,.xlsx,.xls,.csv" multiple hidden>
   <input type="file" id="cam" accept="image/*" multiple hidden>
 </header>
@@ -55,6 +61,13 @@ table.sh td.tl{text-align:start}
 <details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
 <div class="ib"><b>📋 الشيت الحالي (كل المرضى + التعديلات)</b><span class="bs"><button id="fp">⬇ PDF</button><button id="fx">⬇ Excel</button></span></div><div id="list"></div><h4>📷 الصور المقروءة (أرشيف)</h4><div id="imps"></div></div>
 
+<div id="ho" style="display:none;position:fixed;inset:0;background:var(--bg);color:var(--ink);z-index:15;overflow:auto;padding:10px">
+ <div class="row"><b style="flex:1;align-self:center">📋 Handover — NEURO-ICU</b><button class="sec" id="hcp">نسخ نص</button><button class="sec" id="hpd">⬇ PDF</button><button id="hx">✕</button></div>
+ <div id="hmeta" style="font-size:13px;color:var(--mut);margin:4px 0"></div>
+ <div class="tw"><table class="ho" id="hot"></table></div>
+ <div id="hvac" style="margin:8px 4px;font-size:14px;font-weight:700"></div>
+ <div style="font-size:12px;color:var(--mut);margin:0 4px">القيم بتتحسب تلقائي من الشيت. اضغط على أي قيمة لتعديلها يدوياً (امسحها وسيب الخانة فاضية عشان ترجع تلقائي).</div>
+</div>
 <div id="cf" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30;align-items:center;justify-content:center;padding:14px"><div style="background:var(--card);color:var(--ink);padding:14px;border-radius:12px;width:100%;max-width:460px"><div id="cft" style="white-space:pre-wrap;margin-bottom:10px"></div><div id="cfl" style="max-height:50vh;overflow:auto;margin-bottom:8px"></div><input id="cfi" style="display:none;width:100%;margin-bottom:10px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)" placeholder="اكتب: مسح"><div class="row"><button id="cfy">تأكيد</button><button class="sec" id="cfn">إلغاء</button></div></div></div>
 <div id="toast" style="display:none;position:fixed;left:10px;right:10px;bottom:14px;z-index:40;background:#14232e;color:#fff;padding:10px 12px;border-radius:10px;font-size:14px"></div>
 <script type="module">
@@ -87,18 +100,20 @@ function stop(){unsubs.forEach(u=>{try{u()}catch(e){}});unsubs=[]}
 function start(){
   if(started)return;started=true;
   const fail=er=>{msg('⚠️ انقطع الاتصال: '+er.message+' — بعيد المحاولة...');stop();started=false;setTimeout(()=>{if(auth.currentUser)start()},5000)};
-  unsubs.push(onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()},fail));
+  unsubs.push(onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>ro(a)-ro(b)||String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()},fail));
   const since=()=>Timestamp.fromMillis(Date.now()-HOURS*36e5);
   unsubs.push(onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>({...d.data(),_id:d.id}));render()},fail));
   unsubs.push(onSnapshot(query(collection(db,'imports'),orderBy('time','desc'),limit(10)),sn=>{IM=sn.docs.map(d=>{const x=d.data();let rows=[];try{rows=JSON.parse(x.rows)}catch(e){}return {when:t_(x.time).toLocaleString(),rows,_id:d.id}});render()},fail));
+  unsubs.push(onSnapshot(doc(db,'settings','handover'),sn=>{HOV=sn.exists()?sn.data():{};render()},fail));
   if(!window._iv)window._iv=setInterval(render,60000);
 }
 function render(){
+  if($('ho')&&$('ho').style.display==='block')renderHO();
   const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
   $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
   const HC=['rgba(66,133,244,.32)','rgba(52,168,83,.32)','rgba(251,140,0,.34)'],HB=['#4285f4','#34a853','#fb8c00'];
   $('alist').innerHTML=rec.length?rec.map(c=>{const k=P.findIndex(p=>p.name===c.name&&(p.mrn||'')===(c.mrn||'')),z=(k>=0?k:0)%3;return '<li style="background:'+HC[z]+';border-inline-start-color:'+HB[z]+'"><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+' <button class="x" data-del="'+c._id+'">🗑</button></li>'}).join(''):'<li>مفيش تعديلات</li>';
-  $('list').innerHTML=sheet(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,k)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[k]),true);
+  $('list').innerHTML=sheet(s?P.filter(p=>(p.name+p.mrn+p.room).toLowerCase().includes(s)):withVacant(P),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,k)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[k]),true);
   $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📎 ملف/صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><span class="bs"><button data-a="pdf" data-i="'+i+'">⬇ PDF</button><button data-a="xls" data-i="'+i+'">⬇ Excel</button><button class="x" data-a="del" data-i="'+i+'">🗑</button></span></div>'+sheet(m.rows)).join('');
 }
 function parseD(s){
@@ -111,6 +126,67 @@ function parseD(s){
   return ok(dm)?dm:(ok(md)?md:null);
 }
 const losOf=p=>{const d=parseD(p.admit_date);if(!d)return p.los||'';return String(Math.max(0,Math.floor((new Date().setHours(0,0,0,0)-d.getTime())/864e5)))};
+
+const ROOMS=['1001','1002','1003','1019A','1019B','1020A','1020B','1021A','1021B','1022','1023','1024','1025','1026A','1026B','1027A','1027B','1028','1029','1030','1031','1032','1033','1034A','1034B','1035','1036A','1036B'];
+const ALIAS={'1015':'1019'};
+function rk(r){
+  const t=String(r||'').toUpperCase().replace(/ROOM|BED|ICU|NEURO/g,'');
+  const m=t.match(/(\d{1,4})\s*[-\/]?\s*([A-Z])?(?![A-Z])/);if(!m)return t.trim();
+  let n=m[1],l=m[2]||'';
+  if(!l){const m2=t.match(/\b([A-Z])\s*[-\/]\s*\d/);if(m2)l=m2[1]}
+  if(n.length<=2)n='10'+n.padStart(2,'0');
+  n=n.slice(-4);if(ALIAS[n])n=ALIAS[n];
+  return n+l;
+}
+function rshort(r){const k=rk(r),m=k.match(/(\d{2})([A-Z]?)$/);return m?m[1]+m[2]:String(r||'')}
+function ro(p){const i=ROOMS.indexOf(rk(p.room));return i<0?999:i}
+function withVacant(rows){
+  const out=[],used=new Set();
+  ROOMS.forEach(r=>{const ps=rows.filter(p=>rk(p.room)===r);if(ps.length)ps.forEach(p=>{out.push(p);used.add(p)});else out.push({vacant:true,room:r})});
+  rows.forEach(p=>{if(!used.has(p))out.push(p)});
+  return out;
+}
+const has=(s,re)=>re.test(String(s||''));
+const lst=a=>({n:a.length,rooms:a.map(p=>rshort(p.room))});
+const todayStr=()=>new Date().toDateString();
+const HF=[
+ ['total','Total number of patients',()=>({n:P.length,rooms:[]}),1],
+ ['pu','# Pressure Ulcers',()=>lst(P.filter(p=>has(p.remarks+' '+p.history,/ulcer|bedsore|pressure (sore|injury)|\bPU\b/i)))],
+ ['mv','MV',()=>lst(P.filter(p=>has(p.connections,/\bMV\b|ventilat/i)))],
+ ['trach','# Trach/ETT',()=>lst(P.filter(p=>has(p.connections,/\b(TT|ETT)\b|trach/i)))],
+ ['d30','PATIENT IN MORE THAN 30 DAYS',()=>lst(P.filter(p=>+losOf(p)>30)),1],
+ ['r11','# 1:1 Ratio',()=>lst(P.filter(p=>has(p.remarks,/1\s*:\s*1/)))],
+ ['cpu','# Community Acquired PU',()=>lst(P.filter(p=>has(p.remarks,/community/i)))],
+ ['inf','Infected PT',()=>lst(P.filter(p=>has(p.cs,/positive|\+\s*ve|pseudomonas|klebsiella|acinetobacter|e[-. ]?coli|enterobacter|staph|bacill/i)))],
+ ['hd','# HD Cath',()=>lst(P.filter(p=>has(p.connections,/\bHD\b|dialysis/i)))],
+ ['d15','PATIENT IN MORE THAN 15 DAYS',()=>lst(P.filter(p=>+losOf(p)>15&&+losOf(p)<=30))],
+ ['adm','Admission',()=>lst(P.filter(p=>{const d=parseD(p.admit_date);return d&&d.toDateString()===todayStr()}))],
+ ['hpu','# Hospital Acquired PU',()=>lst(P.filter(p=>has(p.remarks,/hospital acquired/i)))],
+ ['iso','Isolated',()=>lst(P.filter(p=>has(p.remarks+' '+p.cs,/isolat/i)))],
+ ['perm','# Perm Cath',()=>lst(P.filter(p=>has(p.connections,/perm\s*cath|permcath/i)))],
+ ['ctu','CTU',()=>lst(P.filter(p=>has(p.remarks,/\bCTU\b/i)))],
+ ['tr','TRANSFER/DISCH',()=>lst(P.filter(p=>has(p.pending+' '+p.remarks,/(for|to be)\s*(transfer|discharg)/i)))],
+ ['rest','RESTRAINED',()=>lst(P.filter(p=>has(p.remarks,/restrain/i)))],
+ ['agit','Agitated',()=>lst(P.filter(p=>has(p.remarks,/agitat/i)))],
+ ['cvc','CVC',()=>lst(P.filter(p=>has(p.connections,/\bCVC\b|\bCVP\b|central/i)))],
+ ['dnr','DNR',()=>lst(P.filter(p=>has(p.remarks,/\bDNR\b/i)))]
+];
+const FM=Object.fromEntries(HF.map(f=>[f[0],f]));
+const HROWS=[['total','pu','mv','trach','d30'],['r11','cpu','inf','hd','d15'],['adm','hpu','iso','perm','ctu'],['tr','rest','agit','cvc','dnr']];
+let HOV={};
+function hoVal(f){const o=String(HOV[f[0]]||'').trim();if(o)return {t:o,m:true};const r=f[2]();return {t:(r.n&&r.rooms.length&&!f[3]?r.n+' ('+r.rooms.join(', ')+')':String(r.n)),m:false}}
+function vacList(){const occ=new Set(P.map(p=>rk(p.room)));return ROOMS.filter(r=>!occ.has(r))}
+function renderHO(){
+  $('hot').innerHTML=HROWS.map(r=>'<tr>'+r.map(k=>{const f=FM[k],v=hoVal(f);return '<td class="l">'+esc(f[1])+'</td><td class="v" data-h="'+k+'">'+esc(v.t)+(v.m?' ✎':'')+'</td>'}).join('')+'</tr>').join('');
+  $('hmeta').textContent=new Date().toLocaleString();
+  const vc=vacList();$('hvac').textContent='الغرف الفاضية ('+vc.length+'): '+(vc.map(rshort).join(', ')||'—');
+}
+function hoText(){
+  const L_=['NEURO-ICU HANDOVER '+new Date().toLocaleString()];
+  HROWS.forEach(r=>r.forEach(k=>{const f=FM[k];L_.push(f[1]+': '+hoVal(f).t)}));
+  const vc=vacList();L_.push('Vacant ('+vc.length+'): '+(vc.map(rshort).join(', ')||'-'));
+  return L_.join('\n');
+}
 const HDR=['Room','P. Name','F. Status','Sex','Length of Stay','History','Connections','Infusions','Lab & Rad','Pending','C/S Infection','Remarks','Date of Admission'];
 const BIG=['history','connections','infusions','labrad','pending','cs','remarks','admit_date'];
 const idl=p=>(p.mrn?p.mrn+(p.doctor?'-':''):'')+(p.doctor||'');
@@ -118,7 +194,7 @@ function sheet(rows,fresh,flag,edit){
   const f=(p,k,x)=>k==='los'?'<td>'+esc(losOf(p))+'</td>':'<td'+(x||'')+(edit?' data-id="'+esc(p._id)+'" data-k="'+k+'"':'')+((flag&&flag(p,k))?' class="chg"':(BIG.includes(k)&&k!=='admit_date'?' class="tl"':''))+'>'+esc(p[k])+'</td>';
   const rs=' rowspan="2"';
   return '<div class="tw"><table class="sh"><colgroup><col style="width:60px"><col style="width:150px"><col style="width:90px"><col style="width:50px"><col style="width:60px"><col style="width:200px"><col style="width:170px"><col style="width:140px"><col style="width:200px"><col style="width:140px"><col style="width:200px"><col style="width:200px"><col style="width:90px"></colgroup><tr class="tt"><th colspan="13">NEURO-ICU</th></tr><tr class="hd">'+HDR.map(h=>'<th>'+h+'</th>').join('')+'</tr>'+
-  rows.map((p,i)=>{const pi=P.indexOf(p),c='g'+((pi>=0?pi:i)%3)+' '+(fresh&&fresh(p)?'new':'');
+  rows.map((p,i)=>{if(p.vacant)return '<tr class="vac"><td>'+esc(p.room)+'</td><td colspan="12">VACANT — فاضية</td></tr>';const pi=P.indexOf(p),c='g'+((pi>=0?pi:i)%3)+' '+(fresh&&fresh(p)?'new':'');
     return '<tr class="'+c+'">'+f(p,'room',rs)+f(p,'name')+f(p,'payer')+f(p,'sex')+f(p,'los')+BIG.map(k=>f(p,k,rs)).join('')+'</tr><tr class="'+c+'"><td>'+esc(idl(p))+'</td>'+f(p,'nationality')+f(p,'age')+'<td></td></tr>'}).join('')+'</table></div>';
 }
 function pdfSheet(rows,title,fname){
@@ -126,8 +202,10 @@ function pdfSheet(rows,title,fname){
   d.text(title,10,12);
   const body=[];
   const PC=[[187,214,251],[184,230,194],[255,214,153]];
-  rows.forEach((p,i)=>{
-    const st={fillColor:PC[i%3]},T=(v,x)=>Object.assign({content:String(v==null?'':v),styles:st},x||{});
+  let ci=0;
+  rows.forEach(p=>{
+    if(p.vacant){body.push([{content:String(p.room),styles:{fillColor:[225,225,225]}},{content:'VACANT',colSpan:12,styles:{fillColor:[225,225,225],halign:'center',fontStyle:'italic'}}]);return}
+    const i=ci++;const st={fillColor:PC[i%3]},T=(v,x)=>Object.assign({content:String(v==null?'':v),styles:st},x||{});
     body.push([T(p.room,{rowSpan:2}),T(p.name),T(p.payer),T(p.sex),T(losOf(p)),...BIG.map(k=>T(p[k],{rowSpan:2}))]);
     body.push([T(idl(p)),T(p.nationality),T(p.age),T('')]);
   });
@@ -142,8 +220,11 @@ async function xlsxSheet(rows,fname){
   ws.addRow(['NEURO-ICU  '+new Date().toLocaleDateString('en-GB')]);ws.mergeCells(1,1,1,13);
   const t=ws.getRow(1);t.height=24;t.getCell(1).font={bold:true,size:14,color:{argb:'FFFFFFFF'}};t.getCell(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1C1C1C'}};t.getCell(1).alignment={horizontal:'center',vertical:'middle'};
   const h=ws.addRow(HDR);h.eachCell(c=>{c.font={bold:true,color:{argb:'FFFFFFFF'}};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF3B3B3B'}};c.alignment={horizontal:'center',vertical:'middle',wrapText:true};c.border=bd});
-  rows.forEach((p,i)=>{
+  let ci=0;
+  rows.forEach(p=>{
     const r=ws.rowCount+1;
+    if(p.vacant){ws.addRow([p.room,'VACANT']);ws.mergeCells(r,2,r,13);ws.getRow(r).eachCell({includeEmpty:true},(c,n)=>{c.border=bd;c.alignment={vertical:'middle',horizontal:'center'};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE1E1E1'}};c.font={italic:true,color:{argb:'FF666666'}}});return}
+    const i=ci++;
     ws.addRow([p.room||'',p.name||'',p.payer||'',p.sex||'',losOf(p),...BIG.map(k=>p[k]||'')]);
     ws.addRow(['',idl(p),p.nationality||'',p.age||'','']);
     [1,6,7,8,9,10,11,12,13].forEach(c=>ws.mergeCells(r,c,r+1,c));
@@ -156,9 +237,9 @@ async function xlsxSheet(rows,fname){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download=fname+'.xlsx';document.body.appendChild(a);a.click();a.remove();
 }
 const stamp_=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
-function fullPdf(){pdfSheet(P,'Neuro ICU Census '+new Date().toLocaleString(),'Census_'+stamp_())}
+function fullPdf(){pdfSheet(withVacant(P),'Neuro ICU Census '+new Date().toLocaleString(),'Census_'+stamp_())}
 $('fp').onclick=fullPdf;
-$('fx').onclick=()=>xlsxSheet(P,'Census_'+stamp_()).catch(e=>msg('خطأ Excel: '+e.message));
+$('fx').onclick=()=>xlsxSheet(withVacant(P),'Census_'+stamp_()).catch(e=>msg('خطأ Excel: '+e.message));
 $('imps').onclick=e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.dataset.i===undefined)return;const m=IM[b.dataset.i];if(!m)return;if(b.dataset.a==='del'){ask('مسح الكتلة دي من الأرشيف؟').then(ok=>{if(ok)deleteDoc(doc(db,'imports',m._id)).then(()=>msg('🗑 اتمسحت الكتلة')).catch(er=>msg('خطأ: '+er.message))});return}const n='Census_photo_'+m.when.replace(/[^0-9]+/g,'-');
   if(b.dataset.a==='xls')xlsxSheet(m.rows,n).catch(er=>msg('خطأ Excel: '+er.message));else pdfSheet(m.rows,'Neuro ICU Census - photo '+m.when,n)};
 $('cp').onclick=e=>{e.preventDefault();changesPdf()};
@@ -362,9 +443,11 @@ function ask(text,word){return new Promise(res=>{$('cft').textContent=text;const
   const done=v=>{$('cf').style.display='none';$('cfy').onclick=null;$('cfn').onclick=null;res(v)};
   $('cfy').onclick=()=>{if(word&&i.value.trim()!==word){i.focus();return}done(true)};$('cfn').onclick=()=>done(false)})}
 let EC=null;
-$('list').onclick=e=>{const td=e.target.closest&&e.target.closest('td[data-k]');if(!td)return;const p=P.find(x=>x._id===td.dataset.id);if(!p)return;EC={p,k:td.dataset.k};$('edt').textContent=p.name+' — '+L[EC.k];$('edv').value=p[EC.k]||'';$('ed').style.display='flex'};
+$('list').onclick=e=>{const td=e.target.closest&&e.target.closest('td[data-k]');if(!td)return;const p=P.find(x=>x._id===td.dataset.id);if(!p)return;EC={p,k:td.dataset.k};$('edx').style.display='';$('edp').style.display='';$('edv').placeholder='';$('edt').textContent=p.name+' — '+L[EC.k];$('edv').value=p[EC.k]||'';$('ed').style.display='flex'};
 $('edc').onclick=()=>{$('ed').style.display='none'};
-$('eds').onclick=async()=>{if(!EC)return;const v=$('edv').value.trim(),p=EC.p,k=EC.k;
+$('eds').onclick=async()=>{if(!EC)return;
+  if(EC.ho){const hk=EC.ho,hv=$('edv').value.trim(),b=writeBatch(db);b.set(doc(db,'settings','handover'),{[hk]:hv},{merge:true});try{await b.commit();$('ed').style.display='none';msg('✅ اتحفظ')}catch(er){msg('خطأ: '+er.message)}return}
+  const v=$('edv').value.trim(),p=EC.p,k=EC.k;
   if(v===String(p[k]||'').trim()){$('ed').style.display='none';return}
   const b=writeBatch(db);b.update(doc(db,'patients',p._id),{[k]:v,lastUpdated:serverTimestamp()});
   b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:p.mrn||'',name:p.name,field:L[k],old:String(p[k]||''),now:v,source:'manual',by:'public'});
@@ -423,5 +506,19 @@ $('ca').onclick=async()=>{
   P=[];C=[];IM=[];render();
   msg(errs.length?'❌ فشل المسح: '+errs.join(' | '):(tot?'✅ اتمسح '+tot+' عنصر، تقدر تبدأ من الأول':'مفيش حاجة تتمسح، الشيت فاضي'));
 };
+
+$('hb').onclick=()=>{$('ho').style.display='block';renderHO()};
+$('hx').onclick=()=>{$('ho').style.display='none'};
+$('hcp').onclick=async()=>{const t=hoText();try{await navigator.clipboard.writeText(t);msg('✅ اتنسخ النص')}catch(e){const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');msg('✅ اتنسخ النص')}catch(er){msg('مقدرتش أنسخ')}a.remove()}};
+$('hpd').onclick=()=>{
+  const d=new jspdf.jsPDF({orientation:'landscape'});d.text('NEURO-ICU HANDOVER   '+new Date().toLocaleString(),10,12);
+  const body=HROWS.map(r=>r.flatMap(k=>{const f=FM[k],v=hoVal(f);return [{content:f[1],styles:{fillColor:[122,122,122],textColor:255,fontStyle:'bold'}},{content:v.t}]}));
+  d.autoTable({startY:18,theme:'grid',styles:{fontSize:8,cellPadding:3,valign:'middle',lineColor:[90,90,90],lineWidth:.3},body});
+  const vc=vacList();d.setFontSize(10);d.text('Vacant rooms ('+vc.length+'): '+(vc.map(rshort).join(', ')||'-'),10,d.lastAutoTable.finalY+8);
+  d.save('Handover_'+stamp_()+'.pdf');
+};
+$('hot').onclick=e=>{const td=e.target.closest&&e.target.closest('td[data-h]');if(!td)return;const k=td.dataset.h,f=FM[k],r=f[2]();
+  EC={ho:k};$('edt').textContent=f[1];$('edv').value=HOV[k]||'';$('edv').placeholder='تلقائي: '+r.n+(r.rooms.length?' ('+r.rooms.join(', ')+')':'');
+  $('edx').style.display='none';$('edp').style.display='none';$('ed').style.display='flex'};
 $('fil').onchange=$('cam').onchange;
 </script></body></html>

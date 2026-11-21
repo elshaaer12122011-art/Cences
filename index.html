@@ -43,6 +43,7 @@ table.sh td.tl{text-align:start}
   <input type="file" id="cam" accept="image/*" multiple hidden>
 </header>
 <div id="msg"></div>
+<div id="ed" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20;align-items:center;justify-content:center;padding:14px"><div style="background:var(--card);padding:12px;border-radius:12px;width:100%;max-width:520px"><b id="edt"></b><textarea id="edv" rows="8" style="display:block;width:100%;margin:8px 0;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"></textarea><div class="row"><button id="eds">حفظ التعديل</button><button class="sec" id="edc">إلغاء</button></div></div></div>
 <div id="npw" hidden><b>➕ اكتب رسالة المريض</b><textarea id="nt" rows="7" placeholder="مثال: غرفة 1040 احمد علي MRN 123456 د. اولفة، 60 سنة ذكر، HX HTN DM، DX acute stroke، TT + NGT + IVC، feeding nova 50 ml/hr، CT brain done، MRSA pending، GCS 8/15 DNR"></textarea><div class="row" style="margin-top:8px"><button id="nps">حلّل وأضف</button><button class="sec" id="npc">إلغاء</button></div><div id="nst" style="margin-top:8px;font-weight:700;color:var(--acc)"></div><div style="font-size:12px;color:var(--mut)">لو المريض موجود (بالـ MRN أو الاسم) هيضيف المعلومات على بياناته.</div></div>
 <details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
 <div class="ib"><b>📋 الشيت الحالي (كل المرضى + التعديلات)</b><span class="bs"><button id="fp">⬇ PDF</button><button id="fx">⬇ Excel</button></span></div><div id="list"></div><h4>📷 الصور المقروءة (أرشيف)</h4><div id="imps"></div></div>
@@ -57,14 +58,14 @@ const app=initializeApp({apiKey:"AIzaSyDI-t55nwcocFL55OFFK5V6onJxIc-m-00",authDo
 const db=getFirestore(app),auth=getAuth(app);
 window.addEventListener('error',e=>{const m=document.getElementById('msg');if(m)m.textContent='JS خطأ: '+e.message});window.addEventListener('unhandledrejection',e=>{const m=document.getElementById('msg');if(m)m.textContent='خطأ: '+(e.reason&&e.reason.message||e.reason)});
 const HOURS=6,$=id=>document.getElementById(id);
-const L={room:'Room',mrn:'MRN',name:'Name',doctor:'Doctor',payer:'Payer',nationality:'Nationality',age:'Age',sex:'Sex',los:'LOS',admit_date:'Admit',history:'History',connections:'Connections',infusions:'Infusions',labrad:'Lab & Rad',pending:'Pending',cs:'C/S Infection',remarks:'Remarks'};
+const L={room:'Room',mrn:'MRN',name:'Name',doctor:'Doctor',payer:'Payer',nationality:'Nationality',age:'Age',sex:'Sex',los:'LOS',admit_date:'Date of Admission',history:'History',connections:'Connections',infusions:'Infusions',labrad:'Lab & Rad',pending:'Pending',cs:'C/S Infection',remarks:'Remarks'};
 const FIELDS=Object.keys(L),EDIT=['history','connections','infusions','labrad','pending','cs','remarks'];
 let P=[],C=[],IM=[];
 const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const msg=t=>{$('msg').textContent=t;const n=$('nst');if(n)n.textContent=t};
 const id_=p=>String(p.mrn||p.name).trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-')||'x';
 const t_=d=>d&&d.toDate?d.toDate():new Date();
-EDIT.forEach(k=>$('fld').add(new Option(L[k],k)));
+EDIT.concat(['admit_date']).forEach(k=>$('fld').add(new Option(L[k],k)));
 
 onAuthStateChanged(auth,u=>{if(u)start()});
 signInAnonymously(auth).catch(e=>msg('خطأ دخول: '+e.message));
@@ -82,14 +83,24 @@ function render(){
   const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
   $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
   $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+'</li>').join(''):'<li>مفيش تعديلات</li>';
-  $('list').innerHTML=sheet(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,k)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[k]));
+  $('list').innerHTML=sheet(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,k)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[k]),true);
   $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📷 صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><span class="bs"><button data-a="pdf" data-i="'+i+'">⬇ PDF</button><button data-a="xls" data-i="'+i+'">⬇ Excel</button></span></div>'+sheet(m.rows)).join('');
 }
+function parseD(s){
+  const m=String(s||'').match(/(\d{1,4})\D+(\d{1,2})\D+(\d{1,4})/);if(!m)return null;
+  const now=Date.now()+864e5,ok=d=>d&&!isNaN(d)&&d.getTime()<=now;
+  if(m[1].length===4){const d=new Date(+m[1],+m[2]-1,+m[3]);return ok(d)?d:null}
+  let a=+m[1],b=+m[2],y=+m[3];if(y<100)y+=2000;
+  const dm=(a<=31&&b<=12)?new Date(y,b-1,a):null,md=(b<=31&&a<=12)?new Date(y,a-1,b):null;
+  if(a>12)return ok(dm)?dm:null;if(b>12)return ok(md)?md:null;
+  return ok(dm)?dm:(ok(md)?md:null);
+}
+const losOf=p=>{const d=parseD(p.admit_date);if(!d)return p.los||'';return String(Math.max(0,Math.floor((new Date().setHours(0,0,0,0)-d.getTime())/864e5)))};
 const HDR=['Room','P. Name','F. Status','Sex','Length of Stay','History','Connections','Infusions','Lab & Rad','Pending','C/S Infection','Remarks','Date of Admission'];
 const BIG=['history','connections','infusions','labrad','pending','cs','remarks','admit_date'];
 const idl=p=>(p.mrn?p.mrn+(p.doctor?'-':''):'')+(p.doctor||'');
-function sheet(rows,fresh,flag){
-  const f=(p,k,x)=>'<td'+(x||'')+((flag&&flag(p,k))?' class="chg"':(BIG.includes(k)&&k!=='admit_date'?' class="tl"':''))+'>'+esc(p[k])+'</td>';
+function sheet(rows,fresh,flag,edit){
+  const f=(p,k,x)=>k==='los'?'<td>'+esc(losOf(p))+'</td>':'<td'+(x||'')+(edit?' data-id="'+esc(p._id)+'" data-k="'+k+'"':'')+((flag&&flag(p,k))?' class="chg"':(BIG.includes(k)&&k!=='admit_date'?' class="tl"':''))+'>'+esc(p[k])+'</td>';
   const rs=' rowspan="2"';
   return '<div class="tw"><table class="sh"><colgroup><col style="width:60px"><col style="width:150px"><col style="width:90px"><col style="width:50px"><col style="width:60px"><col style="width:200px"><col style="width:170px"><col style="width:140px"><col style="width:200px"><col style="width:140px"><col style="width:200px"><col style="width:200px"><col style="width:90px"></colgroup><tr class="tt"><th colspan="13">NEURO-ICU</th></tr><tr class="hd">'+HDR.map(h=>'<th>'+h+'</th>').join('')+'</tr>'+
   rows.map((p,i)=>{const c=(i%2?'g ':'')+(fresh&&fresh(p)?'new':'');
@@ -100,7 +111,7 @@ function pdfSheet(rows,title,fname){
   d.text(title,10,12);
   const body=[];
   rows.forEach(p=>{
-    body.push([{content:p.room||'',rowSpan:2},p.name||'',p.payer||'',p.sex||'',p.los||'',...BIG.map(k=>({content:p[k]||'',rowSpan:2}))]);
+    body.push([{content:p.room||'',rowSpan:2},p.name||'',p.payer||'',p.sex||'',losOf(p),...BIG.map(k=>({content:p[k]||'',rowSpan:2}))]);
     body.push([idl(p),p.nationality||'',p.age||'','']);
   });
   d.autoTable({startY:18,theme:'grid',styles:{fontSize:6,cellPadding:1.5,valign:'middle',lineColor:[110,110,110],lineWidth:.2},headStyles:{fillColor:[40,40,40]},
@@ -116,7 +127,7 @@ async function xlsxSheet(rows,fname){
   const h=ws.addRow(HDR);h.eachCell(c=>{c.font={bold:true,color:{argb:'FFFFFFFF'}};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF3B3B3B'}};c.alignment={horizontal:'center',vertical:'middle',wrapText:true};c.border=bd});
   rows.forEach((p,i)=>{
     const r=ws.rowCount+1;
-    ws.addRow([p.room||'',p.name||'',p.payer||'',p.sex||'',p.los||'',...BIG.map(k=>p[k]||'')]);
+    ws.addRow([p.room||'',p.name||'',p.payer||'',p.sex||'',losOf(p),...BIG.map(k=>p[k]||'')]);
     ws.addRow(['',idl(p),p.nationality||'',p.age||'','']);
     [1,6,7,8,9,10,11,12,13].forEach(c=>ws.mergeCells(r,c,r+1,c));
     for(let k=r;k<=r+1;k++){ws.getRow(k).eachCell({includeEmpty:true},(c,n)=>{c.border=bd;c.alignment={vertical:'middle',horizontal:(n>=6&&n<=12)?'left':'center',wrapText:true};if(i%2)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE6E6E6'}}})}
@@ -155,8 +166,9 @@ $('sv').onclick=async()=>{
   if(m.length>1)return msg('أكتر من مريض: '+m.map(p=>p.name+' ('+p.mrn+')').join(' / '));
   const p=m[0],stamp=new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),line='['+stamp+'] '+t,old=p[f]||'';
   const b=writeBatch(db);
-  b.update(doc(db,'patients',p._id),{[f]:(old?old+'\n':'')+line,lastUpdated:serverTimestamp()});
-  const ch={time:serverTimestamp(),mrn:p.mrn||'',name:p.name,field:L[f],old,now:line,source:'manual',by:'public'};
+  const isD=f==='admit_date';
+  b.update(doc(db,'patients',p._id),{[f]:isD?t:(old?old+'\n':'')+line,lastUpdated:serverTimestamp()});
+  const ch={time:serverTimestamp(),mrn:p.mrn||'',name:p.name,field:L[f],old,now:isD?t:line,source:'manual',by:'public'};
   b.set(doc(collection(db,'changes')),ch);
   try{await b.commit();$('txt').value='';msg('تم الحفظ: '+p.name);setTimeout(()=>changesPdf(),1200)}catch(e){msg(e.message)}
 };
@@ -223,6 +235,7 @@ function localParse(t){
   const all=lines.join('\n');
   m=all.match(/(?:patient(?:\s*name)?|name|الاسم|اسم المريض)\s*[:：]\s*([^\n]+)/i);
   if(m){x.name=m[1].split(/\s\d{1,3}\s*(?:years?|yrs?|y\b|سنة|سنه)/i)[0].replace(/[\/,،]+\s*$/,'').trim()}
+  m=all.match(/(?:date\s*of\s*admission|admission\s*date|admit\s*date|تاريخ\s*(?:ال)?دخول)\s*[:：]?\s*(\d{1,4}[\/\-.]\d{1,2}[\/\-.]\d{1,4})/i);if(m)x.admit_date=m[1];
   m=all.match(/MRN\s*[:：#]?\s*(\d{4,10})/i)||all.match(/\b(\d{6,8})\b/);if(m)x.mrn=m[1];
   m=all.match(/(\d{1,3})\s*(?:years?|yrs?|y\b|سنة|سنه)/i);if(m)x.age=m[1];
   m=all.match(/\b(male|female)\b|(ذكر|انثى|أنثى)/i);if(m)x.sex=/^(male|ذكر)$/i.test(m[0])?'M':'F';
@@ -231,6 +244,7 @@ function localParse(t){
   m=all.match(/(?:\bdr\.?\s*\/?\s*|د\.\s*|دكتور\s+)([A-Za-z\u0600-\u06ff]+)/i);if(m)x.doctor='DR '+m[1].toUpperCase();
   lines.forEach(l=>{
     if(/^(patient|name|mrn|الاسم|اسم المريض)\b/i.test(l))return;
+    if(/(date\s*of\s*admission|admission\s*date|admit\s*date|تاريخ\s*(?:ال)?دخول)/i.test(l))return;
     if(/^(admission|adm\b)/i.test(l))put('history',l);
     else if(/\b(hx|medical|history|pmh|dx|diagnosis|c\/o|surgery|surgical|allerg)/i.test(l))put('history',l);
     else if(/\b(connections?|lines?|access|ett|tt|ivc|cvc|ngt|foley|peg)\b/i.test(l))put('connections',l);
@@ -242,13 +256,21 @@ function localParse(t){
   });
   return x;
 }
+let EC=null;
+$('list').onclick=e=>{const td=e.target.closest&&e.target.closest('td[data-k]');if(!td)return;const p=P.find(x=>x._id===td.dataset.id);if(!p)return;EC={p,k:td.dataset.k};$('edt').textContent=p.name+' — '+L[EC.k];$('edv').value=p[EC.k]||'';$('ed').style.display='flex'};
+$('edc').onclick=()=>{$('ed').style.display='none'};
+$('eds').onclick=async()=>{if(!EC)return;const v=$('edv').value.trim(),p=EC.p,k=EC.k;
+  if(v===String(p[k]||'').trim()){$('ed').style.display='none';return}
+  const b=writeBatch(db);b.update(doc(db,'patients',p._id),{[k]:v,lastUpdated:serverTimestamp()});
+  b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:p.mrn||'',name:p.name,field:L[k],old:String(p[k]||''),now:v,source:'manual',by:'public'});
+  try{await b.commit();$('ed').style.display='none';msg('✅ اتعدّل: '+L[k])}catch(er){msg('خطأ: '+er.message)}};
 $('nb').onclick=()=>{$('npw').hidden=!$('npw').hidden;if(!$('npw').hidden)$('npw').scrollIntoView({behavior:'smooth'})};
 $('npc').onclick=()=>{$('npw').hidden=true};
 $('nps').onclick=async()=>{
   const t=$('nt').value.trim();if(!t)return msg('اكتب الرسالة الأول');
   $('nps').disabled=true;msg('⏳ بحلل الرسالة، استنى 10-30 ثانية...');
   try{
-    const pr='Parse this message about ONE ICU patient (Arabic/English mixed). Return ONLY one JSON object with keys: '+FIELDS.join(', ')+'. Keep the text as written, keep medical abbreviations, do not translate. Put each piece of info in the best field: history = HX, DM, HTN, DX, DOA, past history; connections = ETT, TT, IVC, CVC, NGT, SC, Foley, lines and dates; infusions = feeding, fluids, drugs; labrad = CT, MRI, echo, doppler, labs, X-ray done; pending = pending or S/F items; cs = cultures, MRSA, candida, sputum, blood C/S; remarks = GCS, RASS, DNR, restraint, blood products, other notes. Use "" for anything not mentioned. Do not invent data.\n\nMESSAGE:\n'+t;
+    const pr='Parse this message about ONE ICU patient (Arabic/English mixed). Return ONLY one JSON object with keys: '+FIELDS.join(', ')+'. Keep the text as written, keep medical abbreviations, do not translate. Put each piece of info in the best field: history = HX, DM, HTN, DX, DOA, past history; connections = ETT, TT, IVC, CVC, NGT, SC, Foley, lines and dates; infusions = feeding, fluids, drugs; labrad = CT, MRI, echo, doppler, labs, X-ray done; pending = pending or S/F items; cs = cultures, MRSA, candida, sputum, blood C/S; remarks = GCS, RASS, DNR, restraint, blood products, other notes. admit_date = date of admission exactly as written. Use "" for anything not mentioned. Do not invent data.\n\nMESSAGE:\n'+t;
     let x;
     try{x=await gem([{text:pr}],{tmo:25000,models:MODELS.slice(0,3),rounds:1});if(Array.isArray(x))x=x[0]}catch(e){msg('⚠️ الذكاء مشغول، بحلل الرسالة بالطريقة العادية...');x=null}
     if(!x||!(x.name||x.mrn)){const y=localParse(t);x=Object.assign({},y,Object.fromEntries(Object.entries(x||{}).filter(([k,v])=>String(v||'').trim())))}

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neuro ICU Census</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{--bg:#f3f6f8;--card:#fff;--ink:#14232e;--mut:#5d6f7c;--line:#d5dee5;--acc:#0b6e8a;--warn:#fff4d6;--warnb:#e0a800}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1a21;--card:#17252e;--ink:#e8f0f4;--mut:#93a6b3;--line:#2b3d49;--acc:#4cc2e0;--warn:#3a3213;--warnb:#c9a227}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Tahoma,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:40px}
+header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);padding:10px;z-index:5}
+.row{display:flex;gap:6px;margin-bottom:6px}
+input,select,button{font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);min-width:0}
+input,select{flex:1}button{background:var(--acc);color:#fff;border:0;font-weight:600}button.sec{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+#alert{margin:10px;padding:10px;border:1px solid var(--warnb);background:var(--warn);border-radius:8px}
+#alert summary{font-weight:700}#alert li{margin:6px 0;font-size:14px}
+#msg{margin:6px 10px;font-size:14px;color:var(--acc)}
+.pt{margin:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
+.pt h3{margin:0 0 4px;font-size:16px}.meta{color:var(--mut);font-size:13px}
+.f{margin-top:6px;font-size:13px;white-space:pre-wrap}.f b{color:var(--mut)}.new{border-inline-start:4px solid var(--warnb)}
+#login{padding:20px}
+</style></head><body>
+<div id="app">
+<header>
+  <div class="row"><input id="q" placeholder="اسم المريض أو MRN"><select id="fld"></select></div>
+  <div class="row"><input id="txt" placeholder="المعلومة الجديدة"><button id="sv">حفظ</button></div>
+  <div class="row"><button class="sec" id="cb">📷 صوّر الcensus</button><button class="sec" id="fb">PDF كامل</button><input id="s" placeholder="بحث"></div>
+  <input type="file" id="cam" accept="image/*" capture="environment" multiple hidden>
+</header>
+<div id="msg"></div>
+<details id="alert" open><summary id="asum"></summary><ul id="alist"></ul></details>
+<div id="list"></div></div>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {getFirestore,collection,doc,onSnapshot,query,where,orderBy,writeBatch,serverTimestamp,Timestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {getAuth,signInAnonymously,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+// >>> ضع إعدادات مشروعك هنا (Project settings > Your apps)
+const app=initializeApp({apiKey:"AIzaSyDI-t55nwcocFL55OFFK5V6onJxIc-m-00",authDomain:"cences-51059.firebaseapp.com",projectId:"cences-51059",storageBucket:"cences-51059.firebasestorage.app",messagingSenderId:"1020457540151",appId:"1:1020457540151:web:56e69a4655638aa380bdb2"});
+const db=getFirestore(app),auth=getAuth(app);
+const HOURS=6,$=id=>document.getElementById(id);
+const L={room:'Room',mrn:'MRN',name:'Name',doctor:'Doctor',payer:'Payer',nationality:'Nationality',age:'Age',sex:'Sex',los:'LOS',admit_date:'Admit',history:'History',connections:'Connections',infusions:'Infusions',labrad:'Lab & Rad',pending:'Pending',cs:'C/S Infection',remarks:'Remarks'};
+const FIELDS=Object.keys(L),EDIT=['history','connections','infusions','labrad','pending','cs','remarks'];
+let P=[],C=[];
+const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const msg=t=>$('msg').textContent=t;
+const id_=p=>String(p.mrn||p.name).trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-')||'x';
+const t_=d=>d&&d.toDate?d.toDate():new Date();
+EDIT.forEach(k=>$('fld').add(new Option(L[k],k)));
+
+onAuthStateChanged(auth,u=>{if(u)start()});
+signInAnonymously(auth).catch(e=>msg('خطأ دخول: '+e.message));
+
+let started=false;
+function start(){
+  if(started)return;started=true;
+  onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()});
+  const since=()=>Timestamp.fromMillis(Date.now()-HOURS*36e5);
+  onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>d.data());render()});
+  setInterval(render,60000);
+}
+function render(){
+  const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
+  $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
+  $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+'</li>').join(''):'<li>مفيش تعديلات</li>';
+  $('list').innerHTML=P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)).map(p=>{
+    const fresh=p.lastUpdated&&t_(p.lastUpdated).getTime()>cut;
+    return '<div class="pt'+(fresh?' new':'')+'"><h3>'+esc(p.room)+' · '+esc(p.name)+'</h3><div class="meta">MRN '+esc(p.mrn)+' · '+esc(p.doctor)+' · '+esc(p.age)+esc(p.sex)+' · '+esc(p.payer)+'</div>'+
+    EDIT.filter(k=>p[k]).map(k=>'<div class="f"><b>'+L[k]+':</b> '+esc(p[k])+'</div>').join('')+'</div>'}).join('');
+}
+$('s').oninput=render;
+
+function changesPdf(extra){
+  const cut=Date.now()-HOURS*36e5,rows=C.concat(extra||[]).filter(c=>t_(c.time).getTime()>=cut||!c.time||!c.time.toDate);
+  if(!rows.length)return;
+  const d=new jspdf.jsPDF({orientation:'landscape'});
+  d.text('Neuro ICU - Changes (last '+HOURS+'h) '+new Date().toLocaleString(),10,12);
+  d.autoTable({startY:18,styles:{fontSize:8},head:[['Time','Patient','MRN','Field','Before','Now']],
+    body:rows.map(c=>[t_(c.time).toLocaleString(),c.name,c.mrn,c.field,c.old,c.now])});
+  d.save('Changes_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.pdf');
+}
+function fullPdf(){
+  const d=new jspdf.jsPDF({orientation:'landscape'}),cols=['room','name','mrn','doctor','age','sex','history','connections','infusions','labrad','pending','cs','remarks'];
+  d.text('Neuro ICU Census '+new Date().toLocaleString(),10,12);
+  d.autoTable({startY:18,styles:{fontSize:5},head:[cols.map(c=>L[c])],body:P.map(p=>cols.map(c=>p[c]||''))});
+  d.save('Census_'+new Date().toISOString().slice(0,10)+'.pdf');
+}
+$('fb').onclick=fullPdf;
+
+$('sv').onclick=async()=>{
+  const q=$('q').value.trim().toLowerCase(),f=$('fld').value,t=$('txt').value.trim();
+  if(!q||!t)return msg('اكتب اسم/MRN والمعلومة');
+  let m=P.filter(p=>String(p.mrn).toLowerCase()===q);if(!m.length)m=P.filter(p=>String(p.name).toLowerCase().includes(q));
+  if(!m.length)return msg('المريض مش موجود');
+  if(m.length>1)return msg('أكتر من مريض: '+m.map(p=>p.name+' ('+p.mrn+')').join(' / '));
+  const p=m[0],stamp=new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),line='['+stamp+'] '+t,old=p[f]||'';
+  const b=writeBatch(db);
+  b.update(doc(db,'patients',p._id),{[f]:(old?old+'\n':'')+line,lastUpdated:serverTimestamp()});
+  const ch={time:serverTimestamp(),mrn:p.mrn||'',name:p.name,field:L[f],old,now:line,source:'manual',by:'public'};
+  b.set(doc(collection(db,'changes')),ch);
+  try{await b.commit();$('txt').value='';msg('تم الحفظ: '+p.name);setTimeout(()=>changesPdf(),1200)}catch(e){msg(e.message)}
+};
+
+
+const MODEL='gemini-3.8-flash'; // لو ظهر خطأ model not found جرّب gemini-2.5-flash
+async function extract({image}){
+  let key=localStorage.getItem('gk');
+  if(!key){key=prompt('الصق مفتاح Gemini API (مرة واحدة على الجهاز ده)');if(!key)throw new Error('مفيش مفتاح');localStorage.setItem('gk',key.trim())}
+  const p='This is a photo of a Neuro-ICU census table (may be rotated). Extract EVERY patient row. Return ONLY a JSON array. Keys per item: '+FIELDS.join(', ')+'. mrn = the number before the doctor name; doctor = e.g. "DR OLFA". Keep abbreviations as written. Use "" for empty fields.';
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODEL+':generateContent',{method:'POST',
+    headers:{'x-goog-api-key':key,'content-type':'application/json'},
+    body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:image}},{text:p}]}],generationConfig:{responseMimeType:'application/json'}})});
+  const j=await r.json();
+  if(j.error){if(r.status===400||r.status===403)localStorage.removeItem('gk');throw new Error(j.error.message)}
+  const txt=(j.candidates[0].content.parts||[]).map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
+  try{return {data:{patients:JSON.parse(txt)}}}catch(e){throw new Error('مقدرتش أقرا الصورة، صوّر أقرب وأوضح')}
+}
+function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
+$('cb').onclick=()=>$('cam').click();
+$('cam').onchange=async e=>{
+  const fs=[...e.target.files];let added=0,changed=0;
+  for(let n=0;n<fs.length;n++){
+    msg('قراءة صورة '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
+    try{
+      const res=await extract({image:await shrink(fs[n])}),b=writeBatch(db);
+      res.data.patients.forEach(x=>{
+        const ex=P.find(p=>p._id===id_(x));
+        if(!ex){b.set(doc(db,'patients',id_(x)),{...Object.fromEntries(FIELDS.map(k=>[k,x[k]||''])),lastUpdated:serverTimestamp()});
+          b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:x.mrn||'',name:x.name,field:'New patient',old:'',now:'Room '+x.room,source:'photo'});added++}
+        else{const u={};FIELDS.forEach(k=>{const a=String(ex[k]||'').trim(),v=String(x[k]||'').trim();
+            if(v&&a!==v&&k!=='los'){u[k]=v;b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:ex.mrn||'',name:ex.name,field:L[k],old:a,now:v,source:'photo'})}});
+          if(Object.keys(u).length){u.lastUpdated=serverTimestamp();b.update(doc(db,'patients',ex._id),u);changed++}}
+      });
+      await b.commit();
+    }catch(err){msg('خطأ: '+err.message)}
+  }
+  msg('جديد: '+added+' | اتغير: '+changed);e.target.value='';
+  if(added||changed)setTimeout(()=>changesPdf(),1500);
+};
+</script></body></html>

@@ -21,6 +21,7 @@ input,select{flex:1}button{background:var(--acc);color:#fff;border:0;font-weight
 #login{padding:20px}
 .tw{overflow-x:auto;margin:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}table{border-collapse:collapse;font-size:12px;min-width:1500px}th,td{border:1px solid var(--line);padding:6px;vertical-align:top;white-space:pre-wrap;min-width:90px}th{background:var(--bg)}tr.new td{background:var(--warn)}h4{margin:14px 10px 0}.ib{margin:12px 10px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
 .lb{flex:1;text-align:center;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-weight:600}
+td.chg{background:var(--warn);font-weight:700}
 </style></head><body>
 <div id="app">
 <header>
@@ -31,7 +32,7 @@ input,select{flex:1}button{background:var(--acc);color:#fff;border:0;font-weight
 </header>
 <div id="msg"></div>
 <details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
-<div id="imps"></div><h4>كل المرضى</h4><div id="list"></div></div>
+<div class="ib"><b>📋 الشيت الحالي (كل المرضى + التعديلات)</b><button id="fp">⬇ PDF</button></div><div id="list"></div><h4>📷 الصور المقروءة (أرشيف)</h4><div id="imps"></div></div>
 
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
@@ -68,17 +69,18 @@ function render(){
   const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
   $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
   $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+'</li>').join(''):'<li>مفيش تعديلات</li>';
-  $('list').innerHTML=tbl(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut);
+  $('list').innerHTML=tbl(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,c)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[c]));
   $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📷 صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><button data-i="'+i+'">⬇ PDF</button></div>'+tbl(m.rows)).join('');
 }
 const COLS=['room','name','mrn','doctor','age','sex','history','connections','infusions','labrad','pending','cs','remarks'];
-const tbl=(rows,fresh)=>'<div class="tw"><table><tr>'+COLS.map(c=>'<th>'+L[c]+'</th>').join('')+'</tr>'+rows.map(p=>'<tr'+(fresh&&fresh(p)?' class="new"':'')+'>'+COLS.map(c=>'<td>'+esc(p[c])+'</td>').join('')+'</tr>').join('')+'</table></div>';
+const tbl=(rows,fresh,flag)=>'<div class="tw"><table><tr>'+COLS.map(c=>'<th>'+L[c]+'</th>').join('')+'</tr>'+rows.map(p=>'<tr'+(fresh&&fresh(p)?' class="new"':'')+'>'+COLS.map(c=>'<td'+(flag&&flag(p,c)?' class="chg"':'')+'>'+esc(p[c])+'</td>').join('')+'</tr>').join('')+'</table></div>';
 function impPdf(m){
   const d=new jspdf.jsPDF({orientation:'landscape',format:'a3'});
   d.text('Neuro ICU Census - photo '+m.when,10,12);
   d.autoTable({startY:18,styles:{fontSize:6,cellPadding:1.5},head:[COLS.map(c=>L[c])],body:m.rows.map(p=>COLS.map(c=>p[c]||''))});
   d.save('Census_photo_'+m.when.replace(/[^0-9]+/g,'-')+'.pdf');
 }
+$('fp').onclick=fullPdf;
 $('imps').onclick=e=>{const i=e.target.dataset&&e.target.dataset.i;if(i!==undefined&&IM[i])impPdf(IM[i])};
 $('cp').onclick=e=>{e.preventDefault();changesPdf()};
 $('s').oninput=render;
@@ -93,9 +95,9 @@ function changesPdf(extra){
   d.save('Changes_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.pdf');
 }
 function fullPdf(){
-  const d=new jspdf.jsPDF({orientation:'landscape'}),cols=['room','name','mrn','doctor','age','sex','history','connections','infusions','labrad','pending','cs','remarks'];
+  const d=new jspdf.jsPDF({orientation:'landscape',format:'a3'}),cols=['room','name','mrn','doctor','age','sex','history','connections','infusions','labrad','pending','cs','remarks'];
   d.text('Neuro ICU Census '+new Date().toLocaleString(),10,12);
-  d.autoTable({startY:18,styles:{fontSize:5},head:[cols.map(c=>L[c])],body:P.map(p=>cols.map(c=>p[c]||''))});
+  d.autoTable({startY:18,styles:{fontSize:6,cellPadding:1.5},head:[cols.map(c=>L[c])],body:P.map(p=>cols.map(c=>p[c]||''))});
   d.save('Census_'+new Date().toISOString().slice(0,10)+'.pdf');
 }
 $('fb').onclick=fullPdf;

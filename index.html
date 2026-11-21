@@ -22,15 +22,18 @@ input,select{flex:1}button{background:var(--acc);color:#fff;border:0;font-weight
 .tw{overflow-x:auto;margin:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}table{border-collapse:collapse;font-size:12px;min-width:1500px}th,td{border:1px solid var(--line);padding:6px;vertical-align:top;white-space:pre-wrap;min-width:90px}th{background:var(--bg)}tr.new td{background:var(--warn)}h4{margin:14px 10px 0}.ib{margin:12px 10px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
 .lb{flex:1;text-align:center;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-weight:600}
 td.chg{background:var(--warn);font-weight:700}
+#npw{margin:10px;padding:10px;background:var(--card);border:1px solid var(--line);border-radius:10px}#nt{display:block;width:100%;font:inherit;padding:8px;margin-top:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
 </style></head><body>
 <div id="app">
 <header>
   <div class="row"><input id="q" placeholder="اسم المريض أو MRN"><select id="fld"></select></div>
   <div class="row"><input id="txt" placeholder="المعلومة الجديدة"><button id="sv">حفظ</button></div>
   <div class="row"><label class="lb" for="cam">📷 صوّر الcensus</label><button class="sec" id="fb">PDF كامل</button><input id="s" placeholder="بحث"></div>
+  <div class="row"><button class="sec" id="nb" style="flex:1">➕ مريض جديد / تحديث برسالة</button></div>
   <input type="file" id="cam" accept="image/*" multiple hidden>
 </header>
 <div id="msg"></div>
+<div id="npw" hidden><b>➕ اكتب رسالة المريض</b><textarea id="nt" rows="7" placeholder="مثال: غرفة 1040 احمد علي MRN 123456 د. اولفة، 60 سنة ذكر، HX HTN DM، DX acute stroke، TT + NGT + IVC، feeding nova 50 ml/hr، CT brain done، MRSA pending، GCS 8/15 DNR"></textarea><div class="row" style="margin-top:8px"><button id="nps">حلّل وأضف</button><button class="sec" id="npc">إلغاء</button></div><div style="font-size:12px;color:var(--mut)">لو المريض موجود (بالـ MRN أو الاسم) هيضيف المعلومات على بياناته.</div></div>
 <details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
 <div class="ib"><b>📋 الشيت الحالي (كل المرضى + التعديلات)</b><button id="fp">⬇ PDF</button></div><div id="list"></div><h4>📷 الصور المقروءة (أرشيف)</h4><div id="imps"></div></div>
 
@@ -118,26 +121,29 @@ $('sv').onclick=async()=>{
 
 
 const MODELS=['gemini-3.8-flash','gemini-3.7-flash','gemini-3.6-flash','gemini-2.5-flash'];
-async function extract({image}){
+async function gem(parts){
   let key=localStorage.getItem('gk');
   if(!key){key=prompt('الصق مفتاح Gemini API (مرة واحدة على الجهاز ده)');if(!key)throw new Error('مفيش مفتاح');localStorage.setItem('gk',key.trim())}
-  const p='This is a photo of a Neuro-ICU census table (may be rotated). Extract EVERY patient row. Return ONLY a JSON array. Keys per item: '+FIELDS.join(', ')+'. mrn = the number before the doctor name; doctor = e.g. "DR OLFA". Keep abbreviations as written. Use "" for empty fields.';
-  const body=JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:image}},{text:p}]}],generationConfig:{responseMimeType:'application/json'}});
+  const body=JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json'}});
   let last='';
   for(let round=0;round<2;round++){
     for(const M of MODELS){
-      msg('قراءة الصورة بـ '+M+' ...');
+      msg('قراءة بـ '+M+' ...');
       let r,j;
       try{r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+M+':generateContent',{method:'POST',headers:{'x-goog-api-key':key,'content-type':'application/json'},body});j=await r.json()}catch(e){last=e.message;continue}
       if(j.error){last=j.error.message;
         if(r.status===400&&/API key/i.test(last)||r.status===403){localStorage.removeItem('gk');throw new Error('المفتاح غلط أو مش مفعّل: '+last)}
         continue}
       const txt=(j.candidates&&j.candidates[0]&&j.candidates[0].content.parts||[]).map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
-      try{return {data:{patients:JSON.parse(txt)}}}catch(e){last='مقدرتش أقرا الرد';continue}
+      try{return JSON.parse(txt)}catch(e){last='مقدرتش أقرا الرد';continue}
     }
     msg('الخدمة مشغولة، بحاول تاني...');await new Promise(r=>setTimeout(r,6000));
   }
   throw new Error(last||'فشلت القراءة');
+}
+async function extract({image}){
+  const p='This is a photo of a Neuro-ICU census table (may be rotated). Extract EVERY patient row. Return ONLY a JSON array. Keys per item: '+FIELDS.join(', ')+'. mrn = the number before the doctor name; doctor = e.g. "DR OLFA". Keep abbreviations as written. Use "" for empty fields.';
+  return {data:{patients:await gem([{inline_data:{mime_type:'image/jpeg',data:image}},{text:p}])}};
 }
 function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
 $('cam').onchange=async e=>{
@@ -160,5 +166,37 @@ $('cam').onchange=async e=>{
     }catch(err){errs.push(err.message)}
   }
   msg(errs.length?'❌ فشل: '+errs.join(' | '):'جديد: '+added+' | اتغير: '+changed);e.target.value='';
+};
+
+$('nb').onclick=()=>{$('npw').hidden=!$('npw').hidden;if(!$('npw').hidden)$('npw').scrollIntoView({behavior:'smooth'})};
+$('npc').onclick=()=>{$('npw').hidden=true};
+$('nps').onclick=async()=>{
+  const t=$('nt').value.trim();if(!t)return msg('اكتب الرسالة الأول');
+  $('nps').disabled=true;
+  try{
+    const pr='Parse this message about ONE ICU patient (Arabic/English mixed). Return ONLY one JSON object with keys: '+FIELDS.join(', ')+'. Keep the text as written, keep medical abbreviations, do not translate. Put each piece of info in the best field: history = HX, DM, HTN, DX, DOA, past history; connections = ETT, TT, IVC, CVC, NGT, SC, Foley, lines and dates; infusions = feeding, fluids, drugs; labrad = CT, MRI, echo, doppler, labs, X-ray done; pending = pending or S/F items; cs = cultures, MRSA, candida, sputum, blood C/S; remarks = GCS, RASS, DNR, restraint, blood products, other notes. Use "" for anything not mentioned. Do not invent data.\n\nMESSAGE:\n'+t;
+    const x=await gem([{text:pr}]);
+    const nm=String(x.name||'').trim(),mr=String(x.mrn||'').trim();
+    if(!nm&&!mr)throw new Error('مفيش اسم أو MRN في الرسالة');
+    const ex=P.find(p=>mr&&String(p.mrn).trim()===mr)||P.find(p=>nm&&String(p.name).toLowerCase().includes(nm.toLowerCase()));
+    const stamp=new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),b=writeBatch(db);
+    const logc=(p,f,o,n)=>b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:p.mrn||'',name:p.name,field:f,old:o,now:n,source:'manual',by:'public'});
+    if(!ex){
+      const data=Object.fromEntries(FIELDS.map(k=>[k,String(x[k]||'').trim()]));
+      b.set(doc(db,'patients',id_(data)),{...data,lastUpdated:serverTimestamp()});
+      logc(data,'New patient','','Room '+(data.room||'-'));
+      await b.commit();msg('✅ تم إضافة مريض جديد: '+(data.name||data.mrn));
+    }else{
+      const u={};
+      FIELDS.forEach(k=>{const v=String(x[k]||'').trim();if(!v||k==='name')return;
+        if(EDIT.includes(k)){const nw='['+stamp+'] '+v;u[k]=(ex[k]?ex[k]+'\n':'')+nw;logc(ex,L[k],String(ex[k]||''),nw)}
+        else if(String(ex[k]||'').trim()!==v){u[k]=v;logc(ex,L[k],String(ex[k]||''),v)}});
+      if(!Object.keys(u).length)throw new Error('مفيش معلومة جديدة في الرسالة');
+      u.lastUpdated=serverTimestamp();b.update(doc(db,'patients',ex._id),u);
+      await b.commit();msg('✅ اتحدّث: '+ex.name+' ('+(Object.keys(u).length-1)+' خانة)');
+    }
+    $('nt').value='';$('npw').hidden=true;
+  }catch(e){msg('❌ '+e.message)}
+  finally{$('nps').disabled=false}
 };
 </script></body></html>

@@ -52,6 +52,8 @@ table.sh td.tl{text-align:start}
 <details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
 <div class="ib"><b>📋 الشيت الحالي (كل المرضى + التعديلات)</b><span class="bs"><button id="fp">⬇ PDF</button><button id="fx">⬇ Excel</button></span></div><div id="list"></div><h4>📷 الصور المقروءة (أرشيف)</h4><div id="imps"></div></div>
 
+<div id="cf" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30;align-items:center;justify-content:center;padding:14px"><div style="background:var(--card);color:var(--ink);padding:14px;border-radius:12px;width:100%;max-width:460px"><div id="cft" style="white-space:pre-wrap;margin-bottom:10px"></div><input id="cfi" style="display:none;width:100%;margin-bottom:10px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)" placeholder="اكتب: مسح"><div class="row"><button id="cfy">تأكيد</button><button class="sec" id="cfn">إلغاء</button></div></div></div>
+<div id="toast" style="display:none;position:fixed;left:10px;right:10px;bottom:14px;z-index:40;background:#14232e;color:#fff;padding:10px 12px;border-radius:10px;font-size:14px"></div>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {getFirestore,collection,doc,onSnapshot,query,where,orderBy,limit,writeBatch,serverTimestamp,Timestamp,deleteDoc,getDocs} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
@@ -66,7 +68,7 @@ const L={room:'Room',mrn:'MRN',name:'Name',doctor:'Doctor',payer:'Payer',nationa
 const FIELDS=Object.keys(L),EDIT=['history','connections','infusions','labrad','pending','cs','remarks'];
 let P=[],C=[],IM=[];
 const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const msg=t=>{$('msg').textContent=t;const n=$('nst');if(n)n.textContent=t};
+const msg=t=>{$('msg').textContent=t;const n=$('nst');if(n)n.textContent=t;const o=$('toast');if(o&&t){o.textContent=t;o.style.display='block';clearTimeout(window._tt);window._tt=setTimeout(()=>o.style.display='none',9000)}};
 const id_=p=>String(p.mrn||p.name).trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g,'-')||'x';
 const t_=d=>d&&d.toDate?d.toDate():new Date();
 EDIT.concat(['admit_date']).forEach(k=>$('fld').add(new Option(L[k],k)));
@@ -77,14 +79,16 @@ onAuthStateChanged(auth,gate);
 $('lb').onclick=async()=>{$('le').textContent='';$('lb').disabled=true;try{await signInWithEmailAndPassword(auth,EM,$('pw').value.trim())}catch(e){$('le').textContent=/too-many/.test(e.code||'')?'محاولات كتير، استنى شوية':'الباسورد غلط'}finally{$('lb').disabled=false}};
 $('pw').onkeydown=e=>{if(e.key==='Enter')$('lb').click()};
 
-let started=false;
+let started=false,unsubs=[];
+function stop(){unsubs.forEach(u=>{try{u()}catch(e){}});unsubs=[]}
 function start(){
   if(started)return;started=true;
-  onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()},er=>msg('خطأ قاعدة البيانات: '+er.message));
+  const fail=er=>{msg('⚠️ انقطع الاتصال: '+er.message+' — بعيد المحاولة...');stop();started=false;setTimeout(()=>{if(auth.currentUser)start()},5000)};
+  unsubs.push(onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()},fail));
   const since=()=>Timestamp.fromMillis(Date.now()-HOURS*36e5);
-  onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>({...d.data(),_id:d.id}));render()});
-  onSnapshot(query(collection(db,'imports'),orderBy('time','desc'),limit(10)),sn=>{IM=sn.docs.map(d=>{const x=d.data();let rows=[];try{rows=JSON.parse(x.rows)}catch(e){}return {when:t_(x.time).toLocaleString(),rows,_id:d.id}});render()});
-  setInterval(render,60000);
+  unsubs.push(onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>({...d.data(),_id:d.id}));render()},fail));
+  unsubs.push(onSnapshot(query(collection(db,'imports'),orderBy('time','desc'),limit(10)),sn=>{IM=sn.docs.map(d=>{const x=d.data();let rows=[];try{rows=JSON.parse(x.rows)}catch(e){}return {when:t_(x.time).toLocaleString(),rows,_id:d.id}});render()},fail));
+  if(!window._iv)window._iv=setInterval(render,60000);
 }
 function render(){
   const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
@@ -149,7 +153,7 @@ const stamp_=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
 function fullPdf(){pdfSheet(P,'Neuro ICU Census '+new Date().toLocaleString(),'Census_'+stamp_())}
 $('fp').onclick=fullPdf;
 $('fx').onclick=()=>xlsxSheet(P,'Census_'+stamp_()).catch(e=>msg('خطأ Excel: '+e.message));
-$('imps').onclick=e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.dataset.i===undefined)return;const m=IM[b.dataset.i];if(!m)return;if(b.dataset.a==='del'){if(confirm('مسح الكتلة دي من الأرشيف؟'))deleteDoc(doc(db,'imports',m._id)).catch(er=>msg('خطأ: '+er.message));return}const n='Census_photo_'+m.when.replace(/[^0-9]+/g,'-');
+$('imps').onclick=e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.dataset.i===undefined)return;const m=IM[b.dataset.i];if(!m)return;if(b.dataset.a==='del'){ask('مسح الكتلة دي من الأرشيف؟').then(ok=>{if(ok)deleteDoc(doc(db,'imports',m._id)).then(()=>msg('🗑 اتمسحت الكتلة')).catch(er=>msg('خطأ: '+er.message))});return}const n='Census_photo_'+m.when.replace(/[^0-9]+/g,'-');
   if(b.dataset.a==='xls')xlsxSheet(m.rows,n).catch(er=>msg('خطأ Excel: '+er.message));else pdfSheet(m.rows,'Neuro ICU Census - photo '+m.when,n)};
 $('cp').onclick=e=>{e.preventDefault();changesPdf()};
 $('s').oninput=render;
@@ -310,6 +314,9 @@ function localParse(t){
   });
   return x;
 }
+function ask(text,word){return new Promise(res=>{$('cft').textContent=text;const i=$('cfi');i.style.display=word?'block':'none';i.value='';$('cf').style.display='flex';
+  const done=v=>{$('cf').style.display='none';$('cfy').onclick=null;$('cfn').onclick=null;res(v)};
+  $('cfy').onclick=()=>{if(word&&i.value.trim()!==word){i.focus();return}done(true)};$('cfn').onclick=()=>done(false)})}
 let EC=null;
 $('list').onclick=e=>{const td=e.target.closest&&e.target.closest('td[data-k]');if(!td)return;const p=P.find(x=>x._id===td.dataset.id);if(!p)return;EC={p,k:td.dataset.k};$('edt').textContent=p.name+' — '+L[EC.k];$('edv').value=p[EC.k]||'';$('ed').style.display='flex'};
 $('edc').onclick=()=>{$('ed').style.display='none'};
@@ -353,15 +360,24 @@ $('nps').onclick=async()=>{
 };
 
 $('alist').onclick=e=>{const b=e.target.closest&&e.target.closest('button[data-del]');if(!b)return;deleteDoc(doc(db,'changes',b.dataset.del)).catch(er=>msg('خطأ: '+er.message))};
-$('edx').onclick=async()=>{if(!EC)return;const {p,k}=EC;if(!confirm('مسح محتوى '+L[k]+' للمريض '+p.name+'؟'))return;
+$('edx').onclick=async()=>{if(!EC)return;const {p,k}=EC;if(!await ask('مسح محتوى '+L[k]+' للمريض '+p.name+'؟'))return;
   try{await updateField_(p._id,k);$('ed').style.display='none';msg('🗑 اتمسحت الخانة')}catch(er){msg('خطأ: '+er.message)}};
 async function updateField_(id,k){const b=writeBatch(db);b.update(doc(db,'patients',id),{[k]:''});await b.commit()}
-$('edp').onclick=async()=>{if(!EC)return;const p=EC.p;if(!confirm('حذف المريض '+p.name+' كله من الشيت؟'))return;
+$('edp').onclick=async()=>{if(!EC)return;const p=EC.p;if(!await ask('حذف المريض '+p.name+' كله من الشيت؟'))return;
   try{await deleteDoc(doc(db,'patients',p._id));$('ed').style.display='none';msg('🗑 اتحذف المريض')}catch(er){msg('خطأ: '+er.message)}};
 $('ca').onclick=async()=>{
-  if((prompt('⚠️ ده هيمسح كل المرضى والتعديلات والأرشيف نهائياً.\nاكتب كلمة: مسح  للتأكيد')||'').trim()!=='مسح'){msg('اتلغى المسح');return}
+  if(!await ask('⚠️ ده هيمسح كل المرضى والتعديلات والأرشيف نهائياً.\nاكتب كلمة: مسح  للتأكيد','مسح')){msg('اتلغى المسح');return}
   msg('⏳ بمسح كل حاجة...');
-  try{for(const c of ['patients','changes','imports']){const sn=await getDocs(collection(db,c));let b=writeBatch(db),n=0;for(const d of sn.docs){b.delete(d.ref);if(++n===400){await b.commit();b=writeBatch(db);n=0}}if(n)await b.commit()}msg('✅ اتمسح كل حاجة، تقدر تبدأ من الأول')}catch(er){msg('خطأ: '+er.message)}
+  let tot=0;const errs=[];
+  for(const c of ['patients','changes','imports']){
+    try{
+      const sn=await getDocs(collection(db,c));let b=writeBatch(db),n=0;
+      for(const d of sn.docs){b.delete(d.ref);tot++;if(++n===400){await b.commit();b=writeBatch(db);n=0}}
+      if(n)await b.commit();
+    }catch(er){errs.push(c+': '+er.message)}
+  }
+  P=[];C=[];IM=[];render();
+  msg(errs.length?'❌ فشل المسح: '+errs.join(' | '):(tot?'✅ اتمسح '+tot+' عنصر، تقدر تبدأ من الأول':'مفيش حاجة تتمسح، الشيت فاضي'));
 };
 $('fil').onchange=$('cam').onchange;
 </script></body></html>

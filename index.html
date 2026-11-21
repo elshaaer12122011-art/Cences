@@ -34,26 +34,28 @@ table.sh tr.new td{background:var(--warn)}
 table.sh td.chg{background:#ffe08a!important;color:#000;font-weight:700}
 table.sh td.tl{text-align:start}
 .ib .bs{display:flex;gap:6px}
+.x{padding:3px 8px;background:transparent;color:#c0392b;border:1px solid #c0392b;border-radius:6px;font-size:13px}
 </style></head><body>
-<div id="app">
+<div id="login" style="display:none;padding:24px;max-width:420px;margin:70px auto;text-align:center"><h3>🔒 NEURO-ICU Census</h3><input id="pw" type="password" inputmode="numeric" placeholder="الباسورد" style="width:100%;margin:10px 0"><button id="lb" style="width:100%">دخول</button><div id="le" style="color:#c0392b;margin-top:10px"></div></div>
+<div id="app" style="display:none">
 <header>
   <div class="row"><input id="q" placeholder="اسم المريض أو MRN"><select id="fld"></select></div>
   <div class="row"><input id="txt" placeholder="المعلومة الجديدة"><button id="sv">حفظ</button></div>
-  <div class="row"><label class="lb" for="cam">📷 صوّر الcensus</label><button class="sec" id="fb">PDF كامل</button><input id="s" placeholder="بحث"></div>
+  <div class="row"><label class="lb" for="cam">📷 صوّر الcensus</label><button class="sec" id="fb">PDF كامل</button><button class="sec" id="ca" title="مسح الكل" style="flex:0 0 auto;color:#c0392b">🗑</button><input id="s" placeholder="بحث"></div>
   <div class="row"><button class="sec" id="nb" style="flex:1">➕ مريض جديد / تحديث برسالة</button><label class="lb" for="fil">📄 ارفع PDF / Excel</label></div>
   <input type="file" id="fil" accept=".pdf,application/pdf,.xlsx,.xls,.csv" multiple hidden>
   <input type="file" id="cam" accept="image/*" multiple hidden>
 </header>
 <div id="msg"></div>
-<div id="ed" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20;align-items:center;justify-content:center;padding:14px"><div style="background:var(--card);padding:12px;border-radius:12px;width:100%;max-width:520px"><b id="edt"></b><textarea id="edv" rows="8" style="display:block;width:100%;margin:8px 0;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"></textarea><div class="row"><button id="eds">حفظ التعديل</button><button class="sec" id="edc">إلغاء</button></div></div></div>
+<div id="ed" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20;align-items:center;justify-content:center;padding:14px"><div style="background:var(--card);padding:12px;border-radius:12px;width:100%;max-width:520px"><b id="edt"></b><textarea id="edv" rows="8" style="display:block;width:100%;margin:8px 0;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"></textarea><div class="row"><button id="eds">حفظ التعديل</button><button class="sec" id="edc">إلغاء</button></div><div class="row" style="margin-top:6px"><button class="sec" id="edx">🗑 مسح محتوى الخانة</button><button class="sec" id="edp" style="color:#c0392b">🗑 حذف المريض</button></div></div></div>
 <div id="npw" hidden><b>➕ اكتب رسالة المريض</b><textarea id="nt" rows="7" placeholder="مثال: غرفة 1040 احمد علي MRN 123456 د. اولفة، 60 سنة ذكر، HX HTN DM، DX acute stroke، TT + NGT + IVC، feeding nova 50 ml/hr، CT brain done، MRSA pending، GCS 8/15 DNR"></textarea><div class="row" style="margin-top:8px"><button id="nps">حلّل وأضف</button><button class="sec" id="npc">إلغاء</button></div><div id="nst" style="margin-top:8px;font-weight:700;color:var(--acc)"></div><div style="font-size:12px;color:var(--mut)">لو المريض موجود (بالـ MRN أو الاسم) هيضيف المعلومات على بياناته.</div></div>
 <details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
 <div class="ib"><b>📋 الشيت الحالي (كل المرضى + التعديلات)</b><span class="bs"><button id="fp">⬇ PDF</button><button id="fx">⬇ Excel</button></span></div><div id="list"></div><h4>📷 الصور المقروءة (أرشيف)</h4><div id="imps"></div></div>
 
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import {getFirestore,collection,doc,onSnapshot,query,where,orderBy,limit,writeBatch,serverTimestamp,Timestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-import {getAuth,signInAnonymously,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {getFirestore,collection,doc,onSnapshot,query,where,orderBy,limit,writeBatch,serverTimestamp,Timestamp,deleteDoc,getDocs} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 
 // >>> ضع إعدادات مشروعك هنا (Project settings > Your apps)
 const app=initializeApp({apiKey:"AIzaSyDI-t55nwcocFL55OFFK5V6onJxIc-m-00",authDomain:"cences-51059.firebaseapp.com",projectId:"cences-51059",storageBucket:"cences-51059.firebasestorage.app",messagingSenderId:"1020457540151",appId:"1:1020457540151:web:56e69a4655638aa380bdb2"});
@@ -69,24 +71,27 @@ const id_=p=>String(p.mrn||p.name).trim().toLowerCase().replace(/[^a-z0-9\u0600-
 const t_=d=>d&&d.toDate?d.toDate():new Date();
 EDIT.concat(['admit_date']).forEach(k=>$('fld').add(new Option(L[k],k)));
 
-onAuthStateChanged(auth,u=>{if(u)start()});
-signInAnonymously(auth).catch(e=>msg('خطأ دخول: '+e.message));
+const EM='census@cences.app';
+function gate(u){const ok=!!u&&!u.isAnonymous;$('login').style.display=ok?'none':'block';$('app').style.display=ok?'block':'none';if(ok)start();else if(u)signOut(auth)}
+onAuthStateChanged(auth,gate);
+$('lb').onclick=async()=>{$('le').textContent='';$('lb').disabled=true;try{await signInWithEmailAndPassword(auth,EM,$('pw').value.trim())}catch(e){$('le').textContent=/too-many/.test(e.code||'')?'محاولات كتير، استنى شوية':'الباسورد غلط'}finally{$('lb').disabled=false}};
+$('pw').onkeydown=e=>{if(e.key==='Enter')$('lb').click()};
 
 let started=false;
 function start(){
   if(started)return;started=true;
   onSnapshot(collection(db,'patients'),s=>{P=s.docs.map(d=>({_id:d.id,...d.data()})).sort((a,b)=>String(a.room).localeCompare(String(b.room),undefined,{numeric:true}));render()},er=>msg('خطأ قاعدة البيانات: '+er.message));
   const since=()=>Timestamp.fromMillis(Date.now()-HOURS*36e5);
-  onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>d.data());render()});
-  onSnapshot(query(collection(db,'imports'),orderBy('time','desc'),limit(10)),sn=>{IM=sn.docs.map(d=>{const x=d.data();let rows=[];try{rows=JSON.parse(x.rows)}catch(e){}return {when:t_(x.time).toLocaleString(),rows}});render()});
+  onSnapshot(query(collection(db,'changes'),where('time','>=',since()),orderBy('time','desc')),s=>{C=s.docs.map(d=>({...d.data(),_id:d.id}));render()});
+  onSnapshot(query(collection(db,'imports'),orderBy('time','desc'),limit(10)),sn=>{IM=sn.docs.map(d=>{const x=d.data();let rows=[];try{rows=JSON.parse(x.rows)}catch(e){}return {when:t_(x.time).toLocaleString(),rows,_id:d.id}});render()});
   setInterval(render,60000);
 }
 function render(){
   const cut=Date.now()-HOURS*36e5,s=$('s').value.toLowerCase(),rec=C.filter(c=>t_(c.time).getTime()>=cut);
   $('asum').textContent='آخر '+HOURS+' ساعات: '+rec.length+' تعديل';
-  $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+'</li>').join(''):'<li>مفيش تعديلات</li>';
+  $('alist').innerHTML=rec.length?rec.map(c=>'<li><b>'+esc(c.name)+'</b> — '+esc(c.field)+': '+esc(c.now)+' <button class="x" data-del="'+c._id+'">🗑</button></li>').join(''):'<li>مفيش تعديلات</li>';
   $('list').innerHTML=sheet(P.filter(p=>!s||(p.name+p.mrn+p.room).toLowerCase().includes(s)),p=>p.lastUpdated&&t_(p.lastUpdated).getTime()>cut,(p,k)=>rec.some(x=>x.source==='manual'&&x.name===p.name&&x.mrn===(p.mrn||'')&&x.field===L[k]),true);
-  $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📎 ملف/صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><span class="bs"><button data-a="pdf" data-i="'+i+'">⬇ PDF</button><button data-a="xls" data-i="'+i+'">⬇ Excel</button></span></div>'+sheet(m.rows)).join('');
+  $('imps').innerHTML=IM.map((m,i)=>'<div class="ib"><b>📎 ملف/صورة '+esc(m.when)+' — '+m.rows.length+' مريض</b><span class="bs"><button data-a="pdf" data-i="'+i+'">⬇ PDF</button><button data-a="xls" data-i="'+i+'">⬇ Excel</button><button class="x" data-a="del" data-i="'+i+'">🗑</button></span></div>'+sheet(m.rows)).join('');
 }
 function parseD(s){
   const m=String(s||'').match(/(\d{1,4})\D+(\d{1,2})\D+(\d{1,4})/);if(!m)return null;
@@ -144,7 +149,7 @@ const stamp_=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
 function fullPdf(){pdfSheet(P,'Neuro ICU Census '+new Date().toLocaleString(),'Census_'+stamp_())}
 $('fp').onclick=fullPdf;
 $('fx').onclick=()=>xlsxSheet(P,'Census_'+stamp_()).catch(e=>msg('خطأ Excel: '+e.message));
-$('imps').onclick=e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.dataset.i===undefined)return;const m=IM[b.dataset.i];if(!m)return;const n='Census_photo_'+m.when.replace(/[^0-9]+/g,'-');
+$('imps').onclick=e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.dataset.i===undefined)return;const m=IM[b.dataset.i];if(!m)return;if(b.dataset.a==='del'){if(confirm('مسح الكتلة دي من الأرشيف؟'))deleteDoc(doc(db,'imports',m._id)).catch(er=>msg('خطأ: '+er.message));return}const n='Census_photo_'+m.when.replace(/[^0-9]+/g,'-');
   if(b.dataset.a==='xls')xlsxSheet(m.rows,n).catch(er=>msg('خطأ Excel: '+er.message));else pdfSheet(m.rows,'Neuro ICU Census - photo '+m.when,n)};
 $('cp').onclick=e=>{e.preventDefault();changesPdf()};
 $('s').oninput=render;
@@ -345,6 +350,18 @@ $('nps').onclick=async()=>{
     $('nt').value='';$('npw').hidden=true;
   }catch(e){msg('❌ '+e.message)}
   finally{$('nps').disabled=false}
+};
+
+$('alist').onclick=e=>{const b=e.target.closest&&e.target.closest('button[data-del]');if(!b)return;deleteDoc(doc(db,'changes',b.dataset.del)).catch(er=>msg('خطأ: '+er.message))};
+$('edx').onclick=async()=>{if(!EC)return;const {p,k}=EC;if(!confirm('مسح محتوى '+L[k]+' للمريض '+p.name+'؟'))return;
+  try{await updateField_(p._id,k);$('ed').style.display='none';msg('🗑 اتمسحت الخانة')}catch(er){msg('خطأ: '+er.message)}};
+async function updateField_(id,k){const b=writeBatch(db);b.update(doc(db,'patients',id),{[k]:''});await b.commit()}
+$('edp').onclick=async()=>{if(!EC)return;const p=EC.p;if(!confirm('حذف المريض '+p.name+' كله من الشيت؟'))return;
+  try{await deleteDoc(doc(db,'patients',p._id));$('ed').style.display='none';msg('🗑 اتحذف المريض')}catch(er){msg('خطأ: '+er.message)}};
+$('ca').onclick=async()=>{
+  if((prompt('⚠️ ده هيمسح كل المرضى والتعديلات والأرشيف نهائياً.\nاكتب كلمة: مسح  للتأكيد')||'').trim()!=='مسح'){msg('اتلغى المسح');return}
+  msg('⏳ بمسح كل حاجة...');
+  try{for(const c of ['patients','changes','imports']){const sn=await getDocs(collection(db,c));let b=writeBatch(db),n=0;for(const d of sn.docs){b.delete(d.ref);if(++n===400){await b.commit();b=writeBatch(db);n=0}}if(n)await b.commit()}msg('✅ اتمسح كل حاجة، تقدر تبدأ من الأول')}catch(er){msg('خطأ: '+er.message)}
 };
 $('fil').onchange=$('cam').onchange;
 </script></body></html>

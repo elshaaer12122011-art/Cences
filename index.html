@@ -29,7 +29,9 @@ table.sh{border-collapse:collapse;font-size:12px;min-width:1700px;table-layout:f
 table.sh th,table.sh td{border:1px solid #888;padding:5px;vertical-align:middle;text-align:center;white-space:pre-wrap;word-break:break-word}
 table.sh tr.tt th{background:#1c1c1c;color:#fff;font-size:15px;text-align:center}
 table.sh tr.hd th{background:#3b3b3b;color:#fff}
-table.sh tr.g td{background:rgba(128,128,128,.18)}
+table.sh tr.g0 td{background:rgba(66,133,244,.17)}
+table.sh tr.g1 td{background:rgba(52,168,83,.17)}
+table.sh tr.g2 td{background:rgba(251,140,0,.19)}
 table.sh tr.new td{background:var(--warn)}
 table.sh td.chg{background:#ffe08a!important;color:#000;font-weight:700}
 table.sh td.tl{text-align:start}
@@ -52,7 +54,7 @@ table.sh td.tl{text-align:start}
 <details id="alert" open><summary id="asum"></summary><button class="sec" id="cp" style="margin:6px 0">⬇ PDF التعديلات</button><ul id="alist"></ul></details>
 <div class="ib"><b>📋 الشيت الحالي (كل المرضى + التعديلات)</b><span class="bs"><button id="fp">⬇ PDF</button><button id="fx">⬇ Excel</button></span></div><div id="list"></div><h4>📷 الصور المقروءة (أرشيف)</h4><div id="imps"></div></div>
 
-<div id="cf" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30;align-items:center;justify-content:center;padding:14px"><div style="background:var(--card);color:var(--ink);padding:14px;border-radius:12px;width:100%;max-width:460px"><div id="cft" style="white-space:pre-wrap;margin-bottom:10px"></div><input id="cfi" style="display:none;width:100%;margin-bottom:10px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)" placeholder="اكتب: مسح"><div class="row"><button id="cfy">تأكيد</button><button class="sec" id="cfn">إلغاء</button></div></div></div>
+<div id="cf" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30;align-items:center;justify-content:center;padding:14px"><div style="background:var(--card);color:var(--ink);padding:14px;border-radius:12px;width:100%;max-width:460px"><div id="cft" style="white-space:pre-wrap;margin-bottom:10px"></div><div id="cfl" style="max-height:50vh;overflow:auto;margin-bottom:8px"></div><input id="cfi" style="display:none;width:100%;margin-bottom:10px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)" placeholder="اكتب: مسح"><div class="row"><button id="cfy">تأكيد</button><button class="sec" id="cfn">إلغاء</button></div></div></div>
 <div id="toast" style="display:none;position:fixed;left:10px;right:10px;bottom:14px;z-index:40;background:#14232e;color:#fff;padding:10px 12px;border-radius:10px;font-size:14px"></div>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
@@ -114,16 +116,18 @@ function sheet(rows,fresh,flag,edit){
   const f=(p,k,x)=>k==='los'?'<td>'+esc(losOf(p))+'</td>':'<td'+(x||'')+(edit?' data-id="'+esc(p._id)+'" data-k="'+k+'"':'')+((flag&&flag(p,k))?' class="chg"':(BIG.includes(k)&&k!=='admit_date'?' class="tl"':''))+'>'+esc(p[k])+'</td>';
   const rs=' rowspan="2"';
   return '<div class="tw"><table class="sh"><colgroup><col style="width:60px"><col style="width:150px"><col style="width:90px"><col style="width:50px"><col style="width:60px"><col style="width:200px"><col style="width:170px"><col style="width:140px"><col style="width:200px"><col style="width:140px"><col style="width:200px"><col style="width:200px"><col style="width:90px"></colgroup><tr class="tt"><th colspan="13">NEURO-ICU</th></tr><tr class="hd">'+HDR.map(h=>'<th>'+h+'</th>').join('')+'</tr>'+
-  rows.map((p,i)=>{const c=(i%2?'g ':'')+(fresh&&fresh(p)?'new':'');
+  rows.map((p,i)=>{const c='g'+(i%3)+' '+(fresh&&fresh(p)?'new':'');
     return '<tr class="'+c+'">'+f(p,'room',rs)+f(p,'name')+f(p,'payer')+f(p,'sex')+f(p,'los')+BIG.map(k=>f(p,k,rs)).join('')+'</tr><tr class="'+c+'"><td>'+esc(idl(p))+'</td>'+f(p,'nationality')+f(p,'age')+'<td></td></tr>'}).join('')+'</table></div>';
 }
 function pdfSheet(rows,title,fname){
   const d=new jspdf.jsPDF({orientation:'landscape',format:'a3'});
   d.text(title,10,12);
   const body=[];
-  rows.forEach(p=>{
-    body.push([{content:p.room||'',rowSpan:2},p.name||'',p.payer||'',p.sex||'',losOf(p),...BIG.map(k=>({content:p[k]||'',rowSpan:2}))]);
-    body.push([idl(p),p.nationality||'',p.age||'','']);
+  const PC=[[220,233,251],[221,243,226],[253,232,204]];
+  rows.forEach((p,i)=>{
+    const st={fillColor:PC[i%3]},T=(v,x)=>Object.assign({content:String(v==null?'':v),styles:st},x||{});
+    body.push([T(p.room,{rowSpan:2}),T(p.name),T(p.payer),T(p.sex),T(losOf(p)),...BIG.map(k=>T(p[k],{rowSpan:2}))]);
+    body.push([T(idl(p)),T(p.nationality),T(p.age),T('')]);
   });
   d.autoTable({startY:18,theme:'grid',styles:{fontSize:6,cellPadding:1.5,valign:'middle',lineColor:[110,110,110],lineWidth:.2},headStyles:{fillColor:[40,40,40]},
     head:[[{content:'NEURO-ICU',colSpan:13,styles:{halign:'center',fontSize:9}}],HDR],body});
@@ -141,7 +145,7 @@ async function xlsxSheet(rows,fname){
     ws.addRow([p.room||'',p.name||'',p.payer||'',p.sex||'',losOf(p),...BIG.map(k=>p[k]||'')]);
     ws.addRow(['',idl(p),p.nationality||'',p.age||'','']);
     [1,6,7,8,9,10,11,12,13].forEach(c=>ws.mergeCells(r,c,r+1,c));
-    for(let k=r;k<=r+1;k++){ws.getRow(k).eachCell({includeEmpty:true},(c,n)=>{c.border=bd;c.alignment={vertical:'middle',horizontal:(n>=6&&n<=12)?'left':'center',wrapText:true};if(i%2)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE6E6E6'}}})}
+    for(let k=r;k<=r+1;k++){ws.getRow(k).eachCell({includeEmpty:true},(c,n)=>{c.border=bd;c.alignment={vertical:'middle',horizontal:(n>=6&&n<=12)?'left':'center',wrapText:true};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:['FFDCE9FB','FFDDF3E2','FFFDE8CC'][i%3]}}})}
     const ln=Math.max(...BIG.map(k=>String(p[k]||'').split('\n').reduce((n,l)=>n+Math.max(1,Math.ceil(l.length/30)),0)),2);
     const hh=Math.min(ln*7.5+4,300);ws.getRow(r).height=hh;ws.getRow(r+1).height=hh;
   });
@@ -222,13 +226,15 @@ async function extract(o){
   return {data:{patients:Array.isArray(r)?r:(r.patients||[r])}};
 }
 function rowsToPatients(rows){
-  const hi=rows.findIndex(r=>r.some(c=>/name|اسم/i.test(String(c)))&&r.some(c=>/history/i.test(String(c))));
+  const hi=rows.findIndex(r=>r.some(c=>/name|اسم/i.test(String(c)))&&r.some(c=>/history|room/i.test(String(c))));
   if(hi<0)return null;
   const hdr=rows[hi].map(c=>String(c).toLowerCase());
   const col=re=>hdr.findIndex(h=>re.test(h));
   const C={room:col(/room/),name:col(/name|اسم/),payer:col(/status|payer/),sex:col(/^\s*sex/),los:col(/length|los/),history:col(/history/),connections:col(/connect/),infusions:col(/infus/),labrad:col(/lab/),pending:col(/pending/),cs:col(/c\/s|infection/),remarks:col(/remark/),admit_date:col(/admi|date/)};
   const get=(r,k)=>C[k]>=0&&r[C[k]]!=null?String(r[C[k]]).trim():'';
   const blank=()=>Object.fromEntries(FIELDS.map(k=>[k,'']));
+  const isId=t=>/\b\d{5,10}\b/.test(t);
+  const setId=(p,t,r)=>{const mrn=t.match(/\d{5,10}/)[0];p.mrn=mrn;p.doctor=t.replace(mrn,'').replace(/[-–\/\\]+/g,' ').replace(/\s+/g,' ').trim().toUpperCase();p.nationality=get(r,'payer');p.age=get(r,'sex')};
   const out=[];let cur=null,room='',needName=false,pendingId=false;
   const fill=(p,r)=>{FIELDS.forEach(k=>{if(C[k]>=0&&k!=='name'&&k!=='los'){const v=get(r,k);if(v&&!p[k])p[k]=v}})};
   for(let i=hi+1;i<rows.length;i++){
@@ -236,10 +242,9 @@ function rowsToPatients(rows){
     if(!nm){ if(cur)fill(cur,r); continue }
     if(/^p\.?\s*name$/i.test(nm)||/^neuro/i.test(nm))continue;
     if(get(r,'room'))room=get(r,'room');
-    if(/^\d{4,}/.test(nm)){
-      const m=nm.match(/^(\d{4,10})\s*[-–]?\s*(.*)$/);
-      if(cur&&pendingId&&!cur.mrn){cur.mrn=m[1];cur.doctor=(m[2]||'').trim().toUpperCase();cur.nationality=get(r,'payer');cur.age=get(r,'sex');fill(cur,r);pendingId=false}
-      else{cur=blank();cur.room=get(r,'room')||room;cur.mrn=m[1];cur.doctor=(m[2]||'').trim().toUpperCase();cur.nationality=get(r,'payer');cur.age=get(r,'sex');cur.name='MRN '+m[1];fill(cur,r);out.push(cur);needName=true;pendingId=false}
+    if(isId(nm)){
+      if(cur&&pendingId&&!cur.mrn){setId(cur,nm,r);fill(cur,r);pendingId=false}
+      else{cur=blank();cur.room=get(r,'room')||room;setId(cur,nm,r);cur.name='MRN '+cur.mrn;fill(cur,r);out.push(cur);needName=true;pendingId=false}
     }else{
       if(cur&&needName){cur.name=nm;cur.payer=get(r,'payer');cur.sex=get(r,'sex');fill(cur,r);needName=false}
       else{cur=blank();cur.room=get(r,'room')||room;cur.name=nm;cur.payer=get(r,'payer');cur.sex=get(r,'sex');fill(cur,r);out.push(cur);pendingId=true;needName=false}
@@ -247,16 +252,37 @@ function rowsToPatients(rows){
   }
   return out;
 }
+function fillMerges(ws){
+  (ws['!merges']||[]).forEach(m=>{const tl=ws[XLSX.utils.encode_cell(m.s)];if(!tl)return;
+    for(let r=m.s.r;r<=m.e.r;r++)for(let c=m.s.c;c<=m.e.c;c++){if(r===m.s.r&&c===m.s.c)continue;const a=XLSX.utils.encode_cell({r,c});if(!ws[a])ws[a]={t:tl.t,v:tl.v,w:tl.w}}});
+}
+function chooseSheet(labels){
+  return new Promise(res=>{
+    $('cft').textContent='الملف فيه أكتر من ورقة. اختار الورقة اللي عايز تقراها:';$('cfi').style.display='none';$('cfy').style.display='none';
+    const Lc=$('cfl');Lc.innerHTML=labels.map((t,i)=>'<button class="sec" data-s="'+i+'" style="display:block;width:100%;margin:4px 0;text-align:start">'+esc(t)+'</button>').join('');
+    $('cf').style.display='flex';
+    const done=v=>{$('cf').style.display='none';$('cfy').style.display='';Lc.innerHTML='';Lc.onclick=null;$('cfn').onclick=null;res(v)};
+    Lc.onclick=e=>{const b=e.target.closest&&e.target.closest('button[data-s]');if(b)done(+b.dataset.s)};
+    $('cfn').onclick=()=>done(null);
+  });
+}
 async function readAny(f){
   const n=f.name.toLowerCase();
   if(/\.(xlsx|xls|csv)$/.test(n)){
     const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
-    let all=[];
+    const cands=[];
     for(const sn of wb.SheetNames){
-      const ws=wb.Sheets[sn],rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false}),local=rowsToPatients(rows);
-      if(local&&local.length)all=all.concat(local);
+      const ws=wb.Sheets[sn];fillMerges(ws);
+      const local=rowsToPatients(XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false}));
+      if(local&&local.length)cands.push({sn,local});
     }
-    if(all.length)return all;
+    if(cands.length===1)return cands[0].local;
+    if(cands.length>1){
+      const order=cands.map((c,i)=>i).reverse();
+      const pick=await chooseSheet(order.map(i=>cands[i].sn+'  ('+cands[i].local.length+' مريض)'));
+      if(pick==null)throw new Error('اتلغى الاستيراد');
+      return cands[order[pick]].local;
+    }
     const csv=XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
     return (await extract({text:csv.slice(0,60000)})).data.patients;
   }
@@ -268,27 +294,35 @@ async function readAny(f){
 }
 function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,2200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.85).split(',')[1])};i.src=URL.createObjectURL(f)})}
 $('cam').onchange=async e=>{
-  const fs=[...e.target.files];let added=0,changed=0,parsed=0,errs=[];msg('تم اختيار '+fs.length+' صورة');if(!fs.length)return;
+  const fs=[...e.target.files];let added=0,changed=0,parsed=0,errs=[],note='';msg('تم اختيار '+fs.length+' ملف');if(!fs.length)return;
   for(let n=0;n<fs.length;n++){
     if(n>0)await sleep(4000);
     msg('قراءة ملف '+(n+1)+' من '+fs.length+' ... (ممكن تاخد دقيقة)');
     try{
-      const res={data:{patients:await readAny(fs[n])}},b=writeBatch(db);
-      b.set(doc(collection(db,'imports')),{time:serverTimestamp(),rows:JSON.stringify(res.data.patients),n:n+1});
-      parsed+=res.data.patients.length;
-      if(!res.data.patients.length)throw new Error('القراءة رجّعت 0 مريض');
-      res.data.patients.forEach(x=>{
-        const ex=P.find(p=>p._id===id_(x));
-        if(!ex){b.set(doc(db,'patients',id_(x)),{...Object.fromEntries(FIELDS.map(k=>[k,x[k]||''])),lastUpdated:serverTimestamp()});
-          b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:x.mrn||'',name:x.name,field:'New patient',old:'',now:'Room '+x.room,source:'photo'});added++}
-        else{const u={};FIELDS.forEach(k=>{const a=String(ex[k]||'').trim(),v=String(x[k]||'').trim();
-            if(v&&a!==v&&k!=='los'){u[k]=v;b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:ex.mrn||'',name:ex.name,field:L[k],old:a,now:v,source:'photo'})}});
-          if(Object.keys(u).length){u.lastUpdated=serverTimestamp();b.update(doc(db,'patients',ex._id),u);changed++}}
+      const pts=await readAny(fs[n]);parsed+=pts.length;
+      if(!pts.length)throw new Error('القراءة رجّعت 0 مريض');
+      const ops=[],seen=new Set();
+      pts.forEach(x=>{
+        const id=id_(x);if(seen.has(id))return;seen.add(id);
+        const ex=P.find(p=>p._id===id);
+        if(!ex){
+          const data={...Object.fromEntries(FIELDS.map(k=>[k,String(x[k]||'')])),lastUpdated:serverTimestamp()};
+          ops.push(b=>b.set(doc(db,'patients',id),data));
+          ops.push(b=>b.set(doc(collection(db,'changes')),{time:serverTimestamp(),mrn:x.mrn||'',name:x.name,field:'New patient',old:'',now:'Room '+(x.room||'-'),source:'photo'}));added++;
+        }else{
+          const u={},ch=[];
+          FIELDS.forEach(k=>{const a=String(ex[k]||'').trim(),v=String(x[k]||'').trim();
+            if(v&&a!==v&&k!=='los'){u[k]=v;ch.push({time:serverTimestamp(),mrn:ex.mrn||'',name:ex.name,field:L[k],old:a,now:v,source:'photo'})}});
+          if(Object.keys(u).length){const uu={...u,lastUpdated:serverTimestamp()};ops.push(b=>b.update(doc(db,'patients',ex._id),uu));ch.forEach(c=>ops.push(b=>b.set(doc(collection(db,'changes')),c)));changed++}
+        }
       });
-      await b.commit();
+      for(let i=0;i<ops.length;i+=400){const b=writeBatch(db);ops.slice(i,i+400).forEach(f=>f(b));await b.commit()}
+      const js=JSON.stringify(pts);
+      if(js.length<900000){try{const b2=writeBatch(db);b2.set(doc(collection(db,'imports')),{time:serverTimestamp(),rows:js,n:n+1});await b2.commit()}catch(er){note=' (الأرشيف ما اتحفظش)'}}
+      else note=' (الملف كبير، الأرشيف ما اتحفظش)';
     }catch(err){errs.push(err.message)}
   }
-  msg(errs.length?'❌ فشل: '+errs.join(' | '):'اتقرا '+parsed+' مريض | جديد: '+added+' | اتغير: '+changed);e.target.value='';
+  msg(errs.length?'❌ فشل: '+errs.join(' | '):'اتقرا '+parsed+' مريض | جديد: '+added+' | اتغير: '+changed+note);e.target.value='';
 };
 
 
